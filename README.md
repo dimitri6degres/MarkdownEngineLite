@@ -4,6 +4,9 @@ MarkdownEngineLite is a deliberately small SwiftUI Markdown editor inspired by t
 
 It is not a port of the full original engine. Instead, it focuses on a lightweight iOS/macOS package with native text views, immediate formatting, hidden Markdown markers, PDF export, and a few editing helpers.
 
+
+![Screenshot 1](images/screenshot_01.png)
+
 ## Platforms
 
 - iOS 16+
