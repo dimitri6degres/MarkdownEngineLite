@@ -1,0 +1,322 @@
+# MarkdownEngineLite
+
+MarkdownEngineLite is a deliberately small SwiftUI Markdown editor inspired by the main idea behind `nodes-app/swift-markdown-engine`: Markdown is styled directly inside the text editor while you type.
+
+It is not a port of the full original engine. Instead, it focuses on a lightweight iOS/macOS package with native text views, immediate formatting, hidden Markdown markers, PDF export, and a few editing helpers.
+
+## Platforms
+
+- iOS 16+
+- macOS 13+
+- Swift 5.9+
+
+## Features
+
+- Live Markdown editing with `UITextView` on iOS and `NSTextView` on macOS.
+- Read-only preview mode using the same live rendering as edit mode.
+- Native spell checking enabled by default.
+- Markdown markers are hidden outside the active line and revealed while editing.
+- Code fence markers are revealed when the cursor is anywhere inside the code block.
+- Dynamic edit/preview mode via `Binding<MarkdownEditorMode>`.
+- Optional selected text binding for building formatting toolbars.
+- PDF export as `Data`, `FileDocument`, `Transferable`, or direct file write.
+- No external dependencies.
+- No LaTeX rendering.
+- No syntax highlighting by language.
+
+## Supported Markdown
+
+The live editor currently supports:
+
+- Headings: `#`, `##`, up to `######`
+- Bold: `**text**` and `__text__`
+- Italic: `*text*`
+- Bold + italic: `***text***` and `___text___`
+- Inline code: `` `code` ``
+- Fenced code blocks: triple backticks
+- Links: `[label](https://example.com)`
+- Images as alt-text links: `![alt](https://example.com/image.png)`
+- Horizontal rules: `---`
+- Block quotes: `> quote`
+
+Image URLs are not downloaded or rendered as bitmap images. The package displays the alt text and keeps the URL as a link.
+
+## Installation
+
+Add this folder as a local package in Xcode:
+
+```swift
+.package(path: "MarkdownEngineLite")
+```
+
+Then add the `MarkdownEngineLite` product to your app target.
+
+## Basic Usage
+
+````swift
+import SwiftUI
+import MarkdownEngineLite
+
+struct EditorScreen: View {
+    @State private var text = """
+    # Hello
+
+    This is **simple Markdown**.
+
+    [Google](https://www.google.com)
+
+    ---
+
+    ```swift
+    print("No syntax highlighting, just system monospace")
+    ```
+
+    > Oh, nice catch!
+    """
+
+    var body: some View {
+        MarkdownEditor(
+            title: "Notes",
+            text: $text
+        )
+    }
+}
+````
+
+`title` is optional and defaults to `"Document"`. It is also used as the default PDF filename.
+
+## Dynamic Mode
+
+Use a binding when the parent view controls the editor mode:
+
+```swift
+struct EditorScreen: View {
+    @State private var text = "# Hello"
+    @State private var mode: MarkdownEditorMode = .edit
+
+    var body: some View {
+        MarkdownEditor(
+            text: $text,
+            mode: $mode,
+            placeholder: "Write in Markdown..."
+        )
+    }
+}
+```
+
+Preview mode is the same live editor, but read-only. The active-line marker reveal and spell-check interactions are disabled in preview.
+
+## Configuration
+
+```swift
+var configuration = MarkdownEditorConfiguration.default
+configuration.autocorrectionDisabled = true
+configuration.bodyFontSize = 17
+configuration.hidesMarkdownMarkers = true
+configuration.showsEditorToolbar = true
+
+MarkdownEditor(
+    text: $text,
+    mode: .preview,
+    placeholder: "Write in Markdown...",
+    configuration: configuration
+)
+```
+
+Available configuration values:
+
+- `editorFont`
+- `bodyFontSize`
+- `contentInsets`
+- `showsModePicker`
+- `showsEditorToolbar`
+- `autocorrectionDisabled`
+- `spellCheckingDisabled`
+- `hidesMarkdownMarkers`
+
+## Text Selection
+
+The editor can expose the current selected text range:
+
+```swift
+@State private var text = "Hello world"
+@State private var selectedRange: Range<String.Index>?
+
+MarkdownEditor(
+    text: $text,
+    selectedRange: $selectedRange
+)
+```
+
+The selection binding is useful for toolbars. After a helper modifies the text, the editor reapplies the returned selection so the same text remains selected.
+
+## Editing Helpers
+
+`MarkdownTextEditing` provides small helpers for toolbar buttons.
+
+```swift
+Button("Bold") {
+    selectedRange = MarkdownTextEditing.makeBold(
+        in: &text,
+        selectedRange: selectedRange
+    )
+}
+
+Button("Italic") {
+    selectedRange = MarkdownTextEditing.makeItalic(
+        in: &text,
+        selectedRange: selectedRange
+    )
+}
+
+Button("Quote") {
+    selectedRange = MarkdownTextEditing.toggleBlockQuote(
+        in: &text,
+        selectedRange: selectedRange
+    )
+}
+
+Button("Code Block") {
+    selectedRange = MarkdownTextEditing.toggleCodeBlock(
+        in: &text,
+        selectedRange: selectedRange
+    )
+}
+```
+
+Bold and italic behave like toggles:
+
+```swift
+world -> **world**
+**world** -> world
+
+world -> *world*
+*world* -> world
+```
+
+For explicit heading buttons:
+
+```swift
+selectedRange = MarkdownTextEditing.applyHeading(
+    level: 1,
+    in: &text,
+    selectedRange: selectedRange
+)
+```
+
+`applyHeading(level:)` toggles the requested level:
+
+```swift
+normal + H1 -> H1
+H1 + H1 -> normal
+H2 + H1 -> H1
+```
+
+For a single cycling heading button, omit `level`:
+
+```swift
+selectedRange = MarkdownTextEditing.applyHeading(
+    in: &text,
+    selectedRange: selectedRange
+)
+```
+
+This cycles:
+
+```swift
+normal -> H1 -> H2 -> normal
+```
+
+`toggleBlockQuote` applies or removes `>` on the selected lines. `toggleCodeBlock` wraps or unwraps the selected lines with fenced code markers.
+
+## PDF Export
+
+Export Markdown directly to PDF data:
+
+```swift
+let data = try MarkdownPDFExporter.export(markdown: text)
+```
+
+Use the provided `FileDocument` with SwiftUI `.fileExporter`:
+
+```swift
+@State private var isExportingPDF = false
+@State private var pdfDocument: MarkdownPDFDocument?
+
+Button("Export PDF") {
+    do {
+        pdfDocument = try MarkdownPDFExporter.document(markdown: text)
+        isExportingPDF = true
+    } catch {
+        print("PDF export failed:", error)
+    }
+}
+.fileExporter(
+    isPresented: $isExportingPDF,
+    document: pdfDocument,
+    contentType: .pdf,
+    defaultFilename: "Document.pdf"
+) { result in
+    print(result)
+}
+```
+
+Use the provided `Transferable` with `ShareLink`:
+
+```swift
+@State private var shareItem: MarkdownPDFShareItem?
+
+Button("Prepare Share") {
+    do {
+        shareItem = try MarkdownPDFExporter.shareItem(
+            markdown: text,
+            filename: "Document.pdf"
+        )
+    } catch {
+        print("PDF export failed:", error)
+    }
+}
+
+if let shareItem {
+    ShareLink(item: shareItem) {
+        Label("Share PDF", systemImage: "square.and.arrow.up")
+    }
+}
+```
+
+Write directly to a file:
+
+```swift
+try MarkdownPDFExporter.write(markdown: text, to: url)
+```
+
+Customize page size, margins, and body font size:
+
+```swift
+let configuration = MarkdownPDFExporter.Configuration(
+    pageSize: CGSize(width: 595.2, height: 841.8),
+    margins: .init(top: 56, left: 56, bottom: 56, right: 56),
+    bodyFontSize: 17
+)
+
+let data = try MarkdownPDFExporter.export(
+    markdown: text,
+    configuration: configuration
+)
+```
+
+The PDF renderer includes support for horizontal rules, block quotes, rounded code block backgrounds, and paginated code blocks. When a code block is split across pages, the cut edge is not rounded so the block reads as continuous.
+
+## Design Choices
+
+The original repository is a macOS AppKit editor with a much broader TextKit 2 engine. MarkdownEngineLite intentionally keeps a smaller surface:
+
+- Native `NSTextView` / `UITextView` wrappers.
+- Simple regex-based Markdown styling.
+- No language-aware code highlighting.
+- No embedded remote image rendering.
+- No wiki-links.
+- No LaTeX.
+- No advanced table support.
+
+This keeps the package small, portable, and easy to integrate in SwiftUI apps on both iOS and macOS.
