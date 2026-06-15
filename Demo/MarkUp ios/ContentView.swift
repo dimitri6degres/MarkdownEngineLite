@@ -7,7 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-
+import MarkdownEngineLite
 
 
 
@@ -27,10 +27,9 @@ struct ContentView: View {
             text: $document.text,
             mode: $document.mode,
             selectedRange: $selectedRange,
-            placeholder: "Écrire en Markdown...",
             configuration: MarkdownEditorConfiguration(contentInsets:  EdgeInsets(top: 12, leading: UIDevice.isIPhone ? 20 : 50, bottom: 12, trailing: UIDevice.isIPhone ? 20 : 50))
         )
-        .navigationTitle(documentURL?.lastPathComponent ?? "Nouveau document")
+        .navigationTitle(documentURL?.lastPathComponent ?? "New document")
         
     }
     

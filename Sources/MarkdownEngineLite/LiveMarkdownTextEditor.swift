@@ -41,7 +41,7 @@ struct LiveMarkdownTextEditor: View {
                         Button {
                             exportCurrentViewToPDF()
                         } label: {
-                            Label("Exporter en PDF", systemImage: "square.and.arrow.up")
+                            Label("PDF Export", systemImage: "square.and.arrow.up")
                                 .labelStyle(.iconOnly)
                                 .frame(width: 30, height: 30)
                         }
@@ -54,7 +54,7 @@ struct LiveMarkdownTextEditor: View {
                         Button {
                             mode = isEditable ? .preview : .edit
                         } label: {
-                            Label("Changer le mode", systemImage: isEditable ? "eyeglasses" : "pencil")
+                            Label("Change mode", systemImage: isEditable ? "eyeglasses" : "pencil")
                                 .labelStyle(.iconOnly)
                                 .frame(width: 30, height: 30)
                             
