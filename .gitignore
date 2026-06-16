@@ -2,6 +2,7 @@
 .build/
 DerivedData/
 *.xcodeproj
+!Demo/MarkUp.xcodeproj/
 *.xcworkspace
 xcuserdata/
 *.swiftpm/
