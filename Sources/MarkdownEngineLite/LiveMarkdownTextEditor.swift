@@ -36,103 +36,75 @@ struct LiveMarkdownTextEditor: View {
             }
 
             
-                VStack(alignment: .trailing, spacing: 5) {
-                    if configuration.showsPdfExporter {
-                        Button {
-                            exportCurrentViewToPDF()
-                        } label: {
-                            Label("PDF Export", systemImage: "square.and.arrow.up")
-                                .labelStyle(.iconOnly)
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .clipShape(.circle)
+            VStack(alignment: .trailing, spacing: 5) {
+                if configuration.showsPdfExporter {
+                    CustomButtonLabel(text: "PDF Export",
+                                      image: "export",
+                                      size: 30) {
+                        exportCurrentViewToPDF()
                     }
                     
-                    if configuration.showsEditorToolbar {
-                    VStack(alignment: .center) {
-                        Button {
-                            mode = isEditable ? .preview : .edit
-                        } label: {
-                            Label("Change mode", systemImage: isEditable ? "eyeglasses" : "pencil")
-                                .labelStyle(.iconOnly)
-                                .frame(width: 30, height: 30)
-                            
-                        }
-                        .buttonStyle(.bordered)
-                        .clipShape(.circle)
+                }
+                
+                if configuration.showsEditorToolbar {
+                VStack(alignment: .center) {
+                    
+                    CustomButtonLabel(text: "Change mode",
+                                      image: isEditable ? "eye" : "pen",
+                                      size: 30) {
+                        mode = isEditable ? .preview : .edit
+                    }
+                    if isEditable {
                         
-                        if isEditable {
-                            
-                            
-                            Button {
-                                selectedRange = MarkdownTextEditing.makeBold(
-                                    in: &text,
-                                    selectedRange: selectedRange
-                                )
-                            } label: {
-                                Label("Bold", systemImage: "bold")
-                                    .labelStyle(.iconOnly)
-                                    .frame(width: 20, height: 20)
-                            }
-                            .buttonStyle(.bordered)
-                            .clipShape(.circle)
-                            
-                            Button {
-                                selectedRange = MarkdownTextEditing.makeItalic(
-                                    in: &text,
-                                    selectedRange: selectedRange
-                                )
-                            } label: {
-                                Label("Italic", systemImage: "italic")
-                                    .labelStyle(.iconOnly)
-                                    .frame(width: 20, height: 20)
-                            }
-                            .buttonStyle(.bordered)
-                            .clipShape(.circle)
-                            
-                            Button {
-                                selectedRange = MarkdownTextEditing.applyHeading(
-                                    in: &text,
-                                    selectedRange: selectedRange
-                                )
-                            } label: {
-                                Label("Title", systemImage: "h.square.fill")
-                                    .labelStyle(.iconOnly)
-                                    .frame(width: 20, height: 20)
-                            }
-                            .buttonStyle(.bordered)
-                            .clipShape(.circle)
-                            
-                            Button {
-                                selectedRange = MarkdownTextEditing.toggleBlockQuote(
-                                    in: &text,
-                                    selectedRange: selectedRange
-                                )
-                            } label: {
-                                Label("Quote", systemImage: "decrease.quotelevel")
-                                    .labelStyle(.iconOnly)
-                                    .frame(width: 20, height: 20)
-                            }
-                            .buttonStyle(.bordered)
-                            .clipShape(.circle)
-                            
-                            Button {
-                                selectedRange = MarkdownTextEditing.toggleCodeBlock(
-                                    in: &text,
-                                    selectedRange: selectedRange
-                                )
-                            } label: {
-                                Label("Block", systemImage: "text.quote")
-                                    .labelStyle(.iconOnly)
-                                    .frame(width: 20, height: 20)
-                            }
-                            .buttonStyle(.bordered)
-                            .clipShape(.circle)
+                        CustomButtonLabel(text: "Bold",
+                                          image: "bold",
+                                          size: 20) {
+                            selectedRange = MarkdownTextEditing.makeBold(
+                                in: &text,
+                                selectedRange: selectedRange
+                            )
+                        }
+                        
+                        CustomButtonLabel(text: "Italic",
+                                          image: "italic",
+                                          size: 20) {
+                            selectedRange = MarkdownTextEditing.makeItalic(
+                                in: &text,
+                                selectedRange: selectedRange
+                            )
+                        }
+                        
+                        CustomButtonLabel(text: "Header",
+                                          image: "header",
+                                          size: 20) {
+                            selectedRange = MarkdownTextEditing.applyHeading(
+                                in: &text,
+                                selectedRange: selectedRange
+                            )
+                        }
+                        
+                        CustomButtonLabel(text: "Quotes",
+                                          image: "quotes",
+                                          size: 20) {
+                            selectedRange = MarkdownTextEditing.toggleBlockQuote(
+                                in: &text,
+                                selectedRange: selectedRange
+                            )
+                        }
+                        
+                        CustomButtonLabel(text: "Block",
+                                          image: "block",
+                                          size: 20) {
+                            selectedRange = MarkdownTextEditing.toggleCodeBlock(
+                                in: &text,
+                                selectedRange: selectedRange
+                            )
                         }
                         
                     }
+                    
                 }
+            }
             }
         }
         .fileExporter(
@@ -930,3 +902,36 @@ final class MarkdownUITextView: UITextView {
     }
 }
 #endif
+
+
+
+
+struct CustomButtonLabel : View {
+    
+    let text : String
+    let image : String
+    let size : CGFloat
+    let action : () -> Void
+    
+    var body: some View {
+        Button {
+            action()
+        }
+        label :{
+            Label {
+                Text(text)
+            } icon: {
+                Image(image, bundle: .module)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+            }
+            .labelStyle(.iconOnly)
+            .frame(width: size, height: size)
+        }
+        .buttonStyle(.bordered)
+        .clipShape(.circle)
+        
+    }
+    
+}
