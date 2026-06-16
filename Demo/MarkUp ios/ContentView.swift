@@ -18,6 +18,13 @@ struct ContentView: View {
     let documentURL: URL?
     
     @State private var selectedRange: Range<String.Index>?
+    @State private var mode: MarkdownEditorMode
+    
+    init(document: Binding<MarkdownDocument>, documentURL: URL?) {
+        self._document = document
+        self.documentURL = documentURL
+        self._mode = State(initialValue: documentURL == nil ? .edit : .preview)
+    }
     
     
    
@@ -25,9 +32,9 @@ struct ContentView: View {
         MarkdownEditor(
             title: documentURL?.deletingPathExtension().lastPathComponent ?? "Document",
             text: $document.text,
-            mode: $document.mode,
+            mode: $mode,
             selectedRange: $selectedRange,
-            configuration: MarkdownEditorConfiguration(contentInsets:  EdgeInsets(top: 12, leading: UIDevice.isIPhone ? 20 : 50, bottom: 12, trailing: UIDevice.isIPhone ? 20 : 50))
+            configuration: MarkdownEditorConfiguration(contentInsets:  EdgeInsets(top: 12, leading: UIDevice.isIPhone ? 20 : 50, bottom: 12, trailing: UIDevice.isIPhone ? 35 : 50))
         )
         .navigationTitle(documentURL?.lastPathComponent ?? "New document")
         

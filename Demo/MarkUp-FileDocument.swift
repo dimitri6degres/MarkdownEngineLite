@@ -10,28 +10,20 @@ import UniformTypeIdentifiers
 import MarkdownEngineLite
 
 
-// Safe Markdown UTType fallback for platforms where `.markdown` may be unavailable
 private extension UTType {
-    static var safeMarkdown: UTType {
-        if let md = UTType(filenameExtension: "md") {
-            return md
-        }
-        return .plainText
-    }
+    static let markupMarkdown = UTType(importedAs: "net.daringfireball.markdown")
 }
 
 
 // MARK: - MarkdownDocument
 struct MarkdownDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.safeMarkdown, .plainText] }
-    static var writableContentTypes: [UTType] { [.safeMarkdown, .plainText] }
+    static var readableContentTypes: [UTType] { [.markupMarkdown] }
+    static var writableContentTypes: [UTType] { [.markupMarkdown] }
 
     var text: String
-    var mode: MarkdownEditorMode //= .edit
 
     init(text: String = "# New document\n\nStart writing…") {
         self.text = text
-        self.mode = .edit
     }
 
     // Load
@@ -39,7 +31,6 @@ struct MarkdownDocument: FileDocument {
         if let data = configuration.file.regularFileContents,
            let string = String(data: data, encoding: .utf8) {
             self.text = string
-            self.mode = .preview
         } else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -51,4 +42,3 @@ struct MarkdownDocument: FileDocument {
         return .init(regularFileWithContents: data)
     }
 }
-

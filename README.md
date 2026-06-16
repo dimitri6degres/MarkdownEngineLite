@@ -22,6 +22,7 @@ It is not a port of the full original engine. Instead, it focuses on a lightweig
 - Code fence markers are revealed when the cursor is anywhere inside the code block.
 - Dynamic edit/preview mode via `Binding<MarkdownEditorMode>`.
 - Optional selected text binding for building formatting toolbars.
+- Optional built-in editor toolbar with formatting buttons.
 - PDF export as `Data`, `FileDocument`, `Transferable`, or direct file write.
 - No external dependencies.
 - No LaTeX rendering.
@@ -117,6 +118,8 @@ configuration.autocorrectionDisabled = true
 configuration.bodyFontSize = 17
 configuration.hidesMarkdownMarkers = true
 configuration.showsEditorToolbar = true
+configuration.editorToolbarButtonSize = 26
+configuration.showsPdfExporter = true
 
 MarkdownEditor(
     text: $text,
@@ -133,9 +136,13 @@ Available configuration values:
 - `contentInsets`
 - `showsModePicker`
 - `showsEditorToolbar`
+- `editorToolbarButtonSize`
+- `showsPdfExporter`
 - `autocorrectionDisabled`
 - `spellCheckingDisabled`
 - `hidesMarkdownMarkers`
+
+`showsEditorToolbar` displays the built-in mode, bold, italic, heading, quote, and code block buttons. `showsPdfExporter` controls the built-in PDF export button. `editorToolbarButtonSize` controls the base icon size used by these toolbar buttons.
 
 ## Text Selection
 
@@ -152,6 +159,8 @@ MarkdownEditor(
 ```
 
 The selection binding is useful for toolbars. After a helper modifies the text, the editor reapplies the returned selection so the same text remains selected.
+
+For document-based apps, keep UI state such as `MarkdownEditorMode` outside your `FileDocument` model. The demo app stores only the Markdown text in its document and keeps edit/preview mode as local SwiftUI state, so opening a file does not mark it as edited.
 
 ## Editing Helpers
 
@@ -232,6 +241,12 @@ normal -> H1 -> H2 -> normal
 
 `toggleBlockQuote` applies or removes `>` on the selected lines. `toggleCodeBlock` wraps or unwraps the selected lines with fenced code markers.
 
+The package also includes a built-in toolbar using these helpers. Disable it with:
+
+```swift
+configuration.showsEditorToolbar = false
+```
+
 ## PDF Export
 
 Export Markdown directly to PDF data:
@@ -309,6 +324,14 @@ let data = try MarkdownPDFExporter.export(
 ```
 
 The PDF renderer includes support for horizontal rules, block quotes, rounded code block backgrounds, and paginated code blocks. When a code block is split across pages, the cut edge is not rounded so the block reads as continuous.
+
+## Demo Apps
+
+The `Demo` folder contains small iOS and macOS document-based apps named MarkUp. They use SwiftUI `DocumentGroup` and a shared `MarkdownDocument` that reads and writes UTF-8 Markdown text.
+
+The demo declares the Markdown document type as `net.daringfireball.markdown` with `.md` and `.markdown` filename extensions. On iOS, this lets the document browser focus on Markdown files and allows opening compatible files from the Files app.
+
+The demo keeps editor mode as view state, not document data. This avoids marking a document as edited just because it was opened in preview mode.
 
 ## Design Choices
 

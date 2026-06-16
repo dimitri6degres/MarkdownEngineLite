@@ -16,13 +16,20 @@ struct ContentView: View {
     let documentURL: URL?
     
     @State private var selectedRange: Range<String.Index>?
+    @State private var mode: MarkdownEditorMode
+    
+    init(document: Binding<MarkdownDocument>, documentURL: URL?) {
+        self._document = document
+        self.documentURL = documentURL
+        self._mode = State(initialValue: documentURL == nil ? .edit : .preview)
+    }
     
     var body: some View {
         
         MarkdownEditor(
             title: documentURL?.deletingPathExtension().lastPathComponent ?? "Document",
             text: $document.text,
-            mode: $document.mode,
+            mode: $mode,
             selectedRange: $selectedRange
         )
         

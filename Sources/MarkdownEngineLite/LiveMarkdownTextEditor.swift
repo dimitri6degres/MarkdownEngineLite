@@ -34,78 +34,90 @@ struct LiveMarkdownTextEditor: View {
                         .allowsHitTesting(false)
                 }
             }
-
             
-            VStack(alignment: .trailing, spacing: 5) {
+            
+            VStack(alignment: .trailing, spacing: 10) {
                 if configuration.showsPdfExporter {
                     CustomButtonLabel(text: "PDF Export",
                                       image: "export",
-                                      size: 30) {
+                                      editorToolbarButtonSize: configuration.editorToolbarButtonSize) {
                         exportCurrentViewToPDF()
                     }
                     
                 }
                 
                 if configuration.showsEditorToolbar {
-                VStack(alignment: .center) {
-                    
-                    CustomButtonLabel(text: "Change mode",
-                                      image: isEditable ? "eye" : "pen",
-                                      size: 30) {
-                        mode = isEditable ? .preview : .edit
+                    VStack(alignment: .center) {
+                        
+                        CustomButtonLabel(text: "Change mode",
+                                          image: isEditable ? "eye" : "pen",
+                                          editorToolbarButtonSize: configuration.editorToolbarButtonSize) {
+                            mode = isEditable ? .preview : .edit
+                        }
+                        
+                       
+                        
+                        if isEditable {
+                            
+                            VStack {
+                                
+                                CustomButtonLabel(text: "Bold",
+                                                  image: "bold",
+                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
+                                                  small: true) {
+                                    selectedRange = MarkdownTextEditing.makeBold(
+                                        in: &text,
+                                        selectedRange: selectedRange
+                                    )
+                                }
+                                
+                                CustomButtonLabel(text: "Italic",
+                                                  image: "italic",
+                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
+                                                  small: true) {
+                                    selectedRange = MarkdownTextEditing.makeItalic(
+                                        in: &text,
+                                        selectedRange: selectedRange
+                                    )
+                                }
+                                
+                                CustomButtonLabel(text: "Header",
+                                                  image: "header",
+                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
+                                                  small: true) {
+                                    selectedRange = MarkdownTextEditing.applyHeading(
+                                        in: &text,
+                                        selectedRange: selectedRange
+                                    )
+                                }
+                                
+                                CustomButtonLabel(text: "Quotes",
+                                                  image: "quotes",
+                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
+                                                  small: true) {
+                                    selectedRange = MarkdownTextEditing.toggleBlockQuote(
+                                        in: &text,
+                                        selectedRange: selectedRange
+                                    )
+                                }
+                                
+                                CustomButtonLabel(text: "Block",
+                                                  image: "block",
+                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
+                                                  small: true) {
+                                    selectedRange = MarkdownTextEditing.toggleCodeBlock(
+                                        in: &text,
+                                        selectedRange: selectedRange
+                                    )
+                                }
+                            }
+                            .padding(.vertical, configuration.editorToolbarButtonSize)
+                        }
+                        
                     }
-                    if isEditable {
-                        
-                        CustomButtonLabel(text: "Bold",
-                                          image: "bold",
-                                          size: 20) {
-                            selectedRange = MarkdownTextEditing.makeBold(
-                                in: &text,
-                                selectedRange: selectedRange
-                            )
-                        }
-                        
-                        CustomButtonLabel(text: "Italic",
-                                          image: "italic",
-                                          size: 20) {
-                            selectedRange = MarkdownTextEditing.makeItalic(
-                                in: &text,
-                                selectedRange: selectedRange
-                            )
-                        }
-                        
-                        CustomButtonLabel(text: "Header",
-                                          image: "header",
-                                          size: 20) {
-                            selectedRange = MarkdownTextEditing.applyHeading(
-                                in: &text,
-                                selectedRange: selectedRange
-                            )
-                        }
-                        
-                        CustomButtonLabel(text: "Quotes",
-                                          image: "quotes",
-                                          size: 20) {
-                            selectedRange = MarkdownTextEditing.toggleBlockQuote(
-                                in: &text,
-                                selectedRange: selectedRange
-                            )
-                        }
-                        
-                        CustomButtonLabel(text: "Block",
-                                          image: "block",
-                                          size: 20) {
-                            selectedRange = MarkdownTextEditing.toggleCodeBlock(
-                                in: &text,
-                                selectedRange: selectedRange
-                            )
-                        }
-                        
-                    }
-                    
                 }
             }
-            }
+            .padding(10)
         }
         .fileExporter(
             isPresented: $isExportingPDF,
@@ -241,7 +253,9 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text = textView.string
+            if text != textView.string {
+                text = textView.string
+            }
             updateSelectedRange(from: textView.selectedRange(), in: textView.string)
             applyStyle(to: textView, force: true)
         }
@@ -643,21 +657,25 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         textView.autocorrectionType = configuration.autocorrectionDisabled ? .no : .default
         textView.spellCheckingType = configuration.spellCheckingDisabled ? .no : .default
 
+        let needsTextSync = textView.text != text
         context.coordinator.preservingScrollPosition(in: textView) {
             context.coordinator.syncFromBinding {
-                if textView.text != text {
+                if needsTextSync {
                     textView.text = text
+                    context.coordinator.applyBoundSelection(to: textView)
                 }
-
-                context.coordinator.applyBoundSelection(to: textView)
             }
 
             context.coordinator.applyStyle(to: textView)
             context.coordinator.syncFromBinding {
-                context.coordinator.applyBoundSelection(to: textView)
+                if needsTextSync {
+                    context.coordinator.applyBoundSelection(to: textView)
+                }
             }
         }
-        context.coordinator.applyBoundSelectionAfterLayout(to: textView)
+        if needsTextSync {
+            context.coordinator.applyBoundSelectionAfterLayout(to: textView)
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
@@ -669,6 +687,7 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         private var isApplyingBoundSelection = false
         private var selectionUpdateGeneration = 0
         private var scrollRestoreGeneration = 0
+        private var textChangeGeneration = 0
         private var lastStyledText: String?
         private var lastRevealedRanges: [NSRange] = []
 
@@ -685,9 +704,22 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            text = textView.text
-            updateSelectedRange(from: textView.selectedRange, in: textView.text)
-            applyStyle(to: textView, force: true)
+            if text != textView.text {
+                text = textView.text
+            }
+
+            textChangeGeneration += 1
+            let generation = textChangeGeneration
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self,
+                      let textView,
+                      self.textChangeGeneration == generation else {
+                    return
+                }
+
+                self.updateSelectedRange(from: textView.selectedRange, in: textView.text)
+                self.applyStyle(to: textView, force: true)
+            }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1042,29 +1074,34 @@ struct CustomButtonLabel : View {
     
     let text : String
     let image : String
-    let size : CGFloat
+    let editorToolbarButtonSize: CGFloat
+    var small : Bool = false
+    
     let action : () -> Void
+
+    private var buttonSize: (CGFloat, CGFloat)  {
+        return (editorToolbarButtonSize * (small ? 0.8 : 1), (editorToolbarButtonSize + 10) * (small ? 0.8 : 1))
+    }
     
     var body: some View {
         Button {
             action()
         }
         label :{
-            Label {
-                Text(text)
-            } icon: {
-                Image(image, bundle: MarkdownEngineLiteResources.bundle)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: size, height: size)
-            }
-            .labelStyle(.iconOnly)
-            .frame(width: size, height: size)
+            Image(image, bundle: MarkdownEngineLiteResources.bundle)
+                .resizable()
+                .scaledToFit()
+                .frame(width: buttonSize.0, height: buttonSize.0)
+                .frame(width: buttonSize.1, height: buttonSize.1)
+                .background(
+                    Circle()
+                        .fill(Color.secondary.opacity(0.25))
+                )
+                .contentShape(Circle())
         }
-        .buttonStyle(.bordered)
-        .clipShape(.circle)
-        .tint(.primary)
-        
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityLabel(Text(text))
     }
     
 }
