@@ -15,7 +15,12 @@ let package = Package(
         )
     ],
     targets: [
-        .target(name: "MarkdownEngineLite"),
+        .target(
+            name: "MarkdownEngineLite",
+            resources: [
+                .process("Resources")
+            ]
+        ),
         .testTarget(
             name: "MarkdownEngineLiteTests",
             dependencies: ["MarkdownEngineLite"]

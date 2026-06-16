@@ -921,7 +921,7 @@ struct CustomButtonLabel : View {
             Label {
                 Text(text)
             } icon: {
-                Image(image, bundle: .module)
+                Image(image, bundle: MarkdownEngineLiteResources.bundle)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size, height: size)
