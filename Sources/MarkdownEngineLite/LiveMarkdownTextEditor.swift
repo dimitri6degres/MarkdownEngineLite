@@ -198,18 +198,21 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = isEditable ?  !configuration.spellCheckingDisabled : false
         textView.isGrammarCheckingEnabled = isEditable ?  !configuration.spellCheckingDisabled : false
 
-        context.coordinator.syncFromBinding {
-            if textView.string != text {
-                textView.string = text
+        context.coordinator.preservingScrollPosition(in: scrollView) {
+            context.coordinator.syncFromBinding {
+                if textView.string != text {
+                    textView.string = text
+                }
+
+                context.coordinator.applyBoundSelection(to: textView)
             }
 
-            context.coordinator.applyBoundSelection(to: textView)
+            context.coordinator.applyStyle(to: textView)
+            context.coordinator.syncFromBinding {
+                context.coordinator.applyBoundSelection(to: textView)
+            }
         }
-
-        context.coordinator.applyStyle(to: textView)
-        context.coordinator.syncFromBinding {
-            context.coordinator.applyBoundSelection(to: textView)
-        }
+        context.coordinator.applyBoundSelectionAfterLayout(to: textView, in: scrollView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -220,6 +223,7 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
         private var isApplyingStyle = false
         private var isApplyingBoundSelection = false
         private var selectionUpdateGeneration = 0
+        private var scrollRestoreGeneration = 0
         private var lastStyledText: String?
         private var lastRevealedRanges: [NSRange] = []
 
@@ -312,6 +316,18 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
             updates()
         }
 
+        func preservingScrollPosition(in scrollView: NSScrollView, _ updates: () -> Void) {
+            let visibleOrigin = scrollView.contentView.bounds.origin
+            let markdownTextView = scrollView.documentView as? MarkdownNSTextView
+            markdownTextView?.beginSuppressingAutomaticScrolling()
+            updates()
+            restoreVisibleOriginRepeatedly(
+                visibleOrigin,
+                in: scrollView,
+                endingSuppressionFor: markdownTextView
+            )
+        }
+
         func applyBoundSelection(to textView: NSTextView) {
             guard let selectedRange else {
                 return
@@ -319,9 +335,92 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 
             let nsRange = NSRange(selectedRange, in: text)
             guard NSMaxRange(nsRange) <= (textView.string as NSString).length else { return }
-            guard textView.selectedRange() != nsRange else { return }
+            if isEditable, textView.window?.firstResponder !== textView {
+                textView.window?.makeFirstResponder(textView)
+            }
+            setSelectedRange(nsRange, in: textView)
+        }
 
-            textView.setSelectedRange(nsRange)
+        func applyBoundSelectionAfterLayout(to textView: NSTextView, in scrollView: NSScrollView) {
+            let visibleOrigin = scrollView.contentView.bounds.origin
+            DispatchQueue.main.async { [weak self, weak textView, weak scrollView] in
+                guard let self, let textView, let scrollView else { return }
+                self.preservingScrollPosition(in: scrollView) {
+                    self.syncFromBinding {
+                        self.applyBoundSelection(to: textView)
+                    }
+                }
+                if self.isEditable {
+                    textView.window?.makeFirstResponder(textView)
+                }
+                self.restoreVisibleOrigin(visibleOrigin, in: scrollView)
+            }
+        }
+
+        private func restoreVisibleOriginRepeatedly(
+            _ visibleOrigin: CGPoint,
+            in scrollView: NSScrollView,
+            endingSuppressionFor textView: MarkdownNSTextView?
+        ) {
+            scrollRestoreGeneration += 1
+            let generation = scrollRestoreGeneration
+            restoreVisibleOrigin(visibleOrigin, in: scrollView)
+
+            DispatchQueue.main.async { [weak self, weak scrollView] in
+                guard let self,
+                      let scrollView,
+                      self.scrollRestoreGeneration == generation else {
+                    return
+                }
+                self.restoreVisibleOrigin(visibleOrigin, in: scrollView)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, weak scrollView, weak textView] in
+                guard let self,
+                      let scrollView,
+                      self.scrollRestoreGeneration == generation else {
+                    textView?.endSuppressingAutomaticScrolling()
+                    return
+                }
+                self.restoreVisibleOrigin(visibleOrigin, in: scrollView)
+                textView?.endSuppressingAutomaticScrolling()
+            }
+        }
+
+        private func setSelectedRange(_ selectedRange: NSRange, in textView: NSTextView) {
+            guard textView.selectedRange() != selectedRange else { return }
+
+            let scrollView = textView.enclosingScrollView
+            let visibleOrigin = scrollView?.contentView.bounds.origin
+            if let markdownTextView = textView as? MarkdownNSTextView {
+                markdownTextView.beginSuppressingAutomaticScrolling()
+                textView.setSelectedRange(selectedRange)
+                markdownTextView.endSuppressingAutomaticScrolling()
+            } else {
+                textView.setSelectedRange(selectedRange)
+            }
+            if let scrollView, let visibleOrigin {
+                restoreVisibleOrigin(visibleOrigin, in: scrollView)
+            }
+        }
+
+        private func restoreVisibleOrigin(_ visibleOrigin: CGPoint, in scrollView: NSScrollView) {
+            let documentBounds = scrollView.documentView?.bounds ?? .zero
+            let clipBounds = scrollView.contentView.bounds
+            let maxX = max(0, documentBounds.width - clipBounds.width)
+            let maxY = max(0, documentBounds.height - clipBounds.height)
+            let restoredOrigin = CGPoint(
+                x: min(max(visibleOrigin.x, 0), maxX),
+                y: min(max(visibleOrigin.y, 0), maxY)
+            )
+
+            guard scrollView.contentView.bounds.origin != restoredOrigin else { return }
+            if let textView = scrollView.documentView as? MarkdownNSTextView {
+                textView.scrollToVisibleOriginWhileSuppressed(restoredOrigin)
+            } else {
+                scrollView.contentView.scroll(to: restoredOrigin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
 
         private func temporaryAttributes(in textView: NSTextView) -> [(attributes: [NSAttributedString.Key: Any], range: NSRange)] {
@@ -364,11 +463,44 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 }
 
 final class MarkdownNSTextView: NSTextView {
+    private var automaticScrollingSuppressionCount = 0
+    private var allowsSuppressedScrollChange = false
+
+    private var suppressesSelectionScrolling: Bool {
+        automaticScrollingSuppressionCount > 0
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         drawCodeBlockBackgrounds()
         super.draw(dirtyRect)
         drawBlockQuoteBars()
         drawHorizontalRules()
+    }
+
+    override func scrollRangeToVisible(_ range: NSRange) {
+        guard !suppressesSelectionScrolling else { return }
+        super.scrollRangeToVisible(range)
+    }
+
+    override func scroll(_ clipView: NSClipView, to point: NSPoint) {
+        guard !suppressesSelectionScrolling || allowsSuppressedScrollChange else { return }
+        super.scroll(clipView, to: point)
+    }
+
+    func beginSuppressingAutomaticScrolling() {
+        automaticScrollingSuppressionCount += 1
+    }
+
+    func endSuppressingAutomaticScrolling() {
+        automaticScrollingSuppressionCount = max(0, automaticScrollingSuppressionCount - 1)
+    }
+
+    func scrollToVisibleOriginWhileSuppressed(_ visibleOrigin: CGPoint) {
+        guard let scrollView = enclosingScrollView else { return }
+        allowsSuppressedScrollChange = true
+        scrollView.contentView.scroll(to: visibleOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        allowsSuppressedScrollChange = false
     }
 
     private func drawCodeBlockBackgrounds() {
