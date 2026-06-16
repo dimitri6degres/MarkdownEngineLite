@@ -931,6 +931,7 @@ struct CustomButtonLabel : View {
         }
         .buttonStyle(.bordered)
         .clipShape(.circle)
+        .tint(.primary)
         
     }
     
