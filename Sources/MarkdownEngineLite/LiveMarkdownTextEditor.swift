@@ -903,7 +903,6 @@ final class MarkdownNSTextView: NSTextView {
     }
 
     private func position(_ palette: NSView, near imageFrame: CGRect) {
-        palette.layoutSubtreeIfNeeded()
         let fittingSize = palette.fittingSize
         let centeredX = imageFrame.midX - fittingSize.width / 2
         let x = min(
@@ -916,6 +915,7 @@ final class MarkdownNSTextView: NSTextView {
             max(bounds.maxY - fittingSize.height, bounds.minY)
         )
         palette.frame = CGRect(origin: CGPoint(x: x, y: y), size: fittingSize)
+        palette.layoutSubtreeIfNeeded()
     }
 
     private func keepImageWidthPaletteInFront() {

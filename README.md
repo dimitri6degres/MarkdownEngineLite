@@ -59,7 +59,7 @@ Then add the `MarkdownEngineLite` product to your app target.
 
 ## Basic Usage
 
-````swift
+```swift
 import SwiftUI
 import MarkdownEngineLite
 
@@ -69,7 +69,7 @@ struct EditorScreen: View {
 
     This is **simple Markdown**.
 
-    [Google](https://www.google.com)
+    [Example](https://www.example.com)
 
     ---
 
@@ -77,7 +77,7 @@ struct EditorScreen: View {
     print("No syntax highlighting, just system monospace")
     ```
 
-    > Oh, nice catch!
+    > Oh, nice text!
     """
 
     var body: some View {
@@ -87,7 +87,7 @@ struct EditorScreen: View {
         )
     }
 }
-````
+```
 
 `title` is optional and defaults to `"Document"`. It is also used as the default PDF filename.
 
