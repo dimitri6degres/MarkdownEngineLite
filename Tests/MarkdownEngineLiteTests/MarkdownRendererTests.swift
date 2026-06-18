@@ -1,6 +1,10 @@
 import XCTest
 @testable import MarkdownEngineLite
 
+#if os(macOS)
+import AppKit
+#endif
+
 final class MarkdownRendererTests: XCTestCase {
     func testRendersBasicMarkdown() {
         let rendered = MarkdownRenderer.render("# Title\n\nHello, **world**.")
@@ -211,6 +215,17 @@ final class MarkdownRendererTests: XCTestCase {
         #endif
     }
 
+    func testHiddenMarkdownDisablesSpellCheckingArtifacts() throws {
+        let source = "![image](assets/image.png)"
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: true, revealedRanges: [])
+        )
+
+        let spellingState = try XCTUnwrap(rendered.attribute(NSAttributedString.Key("NSSpellingState"), at: 0, effectiveRange: nil) as? Int)
+        XCTAssertEqual(spellingState, 0)
+    }
+
     func testBlockQuoteStylesTextAndHidesMarker() throws {
         let source = "> Oh la belle prise !"
         let rendered = MarkdownStyle.attributedString(
@@ -229,6 +244,63 @@ final class MarkdownRendererTests: XCTestCase {
         #else
         XCTAssertEqual(markerColor.cgColor.alpha, 0)
         #endif
+    }
+
+    func testMarkdownTextEditingAddsImageWidth() throws {
+        var source = "![Logo](assets/logo.png)"
+        let reference = try XCTUnwrap(MarkdownStyle.imageReferences(in: source).first)
+
+        let newRange = MarkdownTextEditing.setImageWidth(
+            in: &source,
+            imageRange: reference.range,
+            percent: 50
+        )
+
+        XCTAssertEqual(source, "![Logo](assets/logo.png){width=50%}")
+        XCTAssertEqual(newRange.map { String(source[$0]) }, source)
+    }
+
+    func testMarkdownTextEditingReplacesImageWidth() throws {
+        var source = "![Logo](assets/logo.png){width=25%}"
+        let reference = try XCTUnwrap(MarkdownStyle.imageReferences(in: source).first)
+
+        let newRange = MarkdownTextEditing.setImageWidth(
+            in: &source,
+            imageRange: reference.range,
+            percent: 75
+        )
+
+        XCTAssertEqual(source, "![Logo](assets/logo.png){width=75%}")
+        XCTAssertEqual(newRange.map { String(source[$0]) }, source)
+    }
+
+    func testMarkdownTextEditingRemovesImageWidthForAuto() throws {
+        var source = "![Logo](assets/logo.png){width=75%}"
+        let reference = try XCTUnwrap(MarkdownStyle.imageReferences(in: source).first)
+
+        let newRange = MarkdownTextEditing.setImageWidth(
+            in: &source,
+            imageRange: reference.range,
+            percent: 0
+        )
+
+        XCTAssertEqual(source, "![Logo](assets/logo.png)")
+        XCTAssertEqual(newRange.map { String(source[$0]) }, source)
+    }
+
+    func testMarkdownTextEditingFindsImageRangeContainingSelection() throws {
+        let source = "Before\n![Logo](assets/logo.png){width=75%}\nAfter"
+        let selectedRange = try XCTUnwrap(source.range(of: "Logo"))
+        let imageRange = try XCTUnwrap(MarkdownTextEditing.imageRange(containing: selectedRange, in: source))
+
+        XCTAssertEqual((source as NSString).substring(with: imageRange), "![Logo](assets/logo.png){width=75%}")
+    }
+
+    func testMarkdownTextEditingDoesNotFindImageRangeOutsideSelection() throws {
+        let source = "Before\n![Logo](assets/logo.png)\nAfter"
+        let selectedRange = try XCTUnwrap(source.range(of: "Before"))
+
+        XCTAssertNil(MarkdownTextEditing.imageRange(containing: selectedRange, in: source))
     }
 
     func testMarkdownTextEditingWrapsSelectionInBold() throws {
@@ -349,6 +421,34 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertEqual(newRange.map { String(source[$0]) }, #"print("Hello")"#)
     }
 
+    func testMarkdownTextEditingInsertsSeparatorAsOwnBlock() throws {
+        var source = "Before\nAfter"
+        let insertionPoint = try XCTUnwrap(source.range(of: "Before")).upperBound
+
+        let newRange = MarkdownTextEditing.insertSeparator(
+            in: &source,
+            selectedRange: insertionPoint..<insertionPoint
+        )
+
+        XCTAssertEqual(source, "Before\n\n---\n\nAfter")
+        let cursor = source.index(source.startIndex, offsetBy: "Before\n\n---\n".count)
+        XCTAssertEqual(newRange?.lowerBound, cursor)
+        XCTAssertEqual(newRange?.upperBound, cursor)
+    }
+
+    func testMarkdownTextEditingInsertsSeparatorInEmptyDocument() throws {
+        var source = ""
+
+        let newRange = MarkdownTextEditing.insertSeparator(
+            in: &source,
+            selectedRange: source.startIndex..<source.startIndex
+        )
+
+        XCTAssertEqual(source, "---\n\n")
+        XCTAssertEqual(newRange?.lowerBound, source.endIndex)
+        XCTAssertEqual(newRange?.upperBound, source.endIndex)
+    }
+
     func testMarkdownTextEditingAppliesHeadingToSelectedLine() throws {
         var source = "Title\nBody"
         let selectedRange = try XCTUnwrap(source.range(of: "Title"))
@@ -434,6 +534,50 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertGreaterThan(data.count, 100)
     }
 
+    func testPDFExporterHandlesMarkdownImagesWithoutAssetProvider() throws {
+        let data = try MarkdownPDFExporter.export(
+            markdown: "# Title\n\n![Logo](assets/logo.png){width=50%}\n\nAfter"
+        )
+        let prefix = String(data: data.prefix(4), encoding: .utf8)
+
+        XCTAssertEqual(prefix, "%PDF")
+        XCTAssertGreaterThan(data.count, 100)
+    }
+
+    func testPDFExporterRendersProvidedMarkdownImages() throws {
+        let imageData = try XCTUnwrap(Self.onePixelPNGData)
+        let data = try MarkdownPDFExporter.export(
+            markdown: "# Title\n\n![Logo](assets/logo.png)\n\nAfter",
+            configuration: MarkdownPDFExporter.Configuration(
+                imageDataProvider: { path in
+                    path == "assets/logo.png" ? imageData : nil
+                }
+            )
+        )
+        let prefix = String(data: data.prefix(4), encoding: .utf8)
+
+        XCTAssertEqual(prefix, "%PDF")
+        XCTAssertGreaterThan(data.count, 100)
+    }
+
+    func testPDFExporterDoesNotStallOnTallImages() throws {
+        let imageData = try XCTUnwrap(Self.tallPNGData())
+        let data = try MarkdownPDFExporter.export(
+            markdown: "# Title\n\n![Tall](assets/tall.png)\n\nAfter",
+            configuration: MarkdownPDFExporter.Configuration(
+                pageSize: CGSize(width: 240, height: 240),
+                margins: .init(top: 24, left: 24, bottom: 24, right: 24),
+                imageDataProvider: { path in
+                    path == "assets/tall.png" ? imageData : nil
+                }
+            )
+        )
+        let prefix = String(data: data.prefix(4), encoding: .utf8)
+
+        XCTAssertEqual(prefix, "%PDF")
+        XCTAssertGreaterThan(data.count, 100)
+    }
+
     func testPDFExporterProducesFileDocument() throws {
         let document = try MarkdownPDFExporter.document(markdown: "# Title")
         let prefix = String(data: document.data.prefix(4), encoding: .utf8)
@@ -490,5 +634,26 @@ final class MarkdownRendererTests: XCTestCase {
         let document = try XCTUnwrap(CGPDFDocument(provider))
 
         XCTAssertGreaterThan(document.numberOfPages, 1)
+    }
+
+    private static var onePixelPNGData: Data? {
+        Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+    }
+
+    private static func tallPNGData() -> Data? {
+        #if os(macOS)
+        let image = NSImage(size: CGSize(width: 20, height: 2_000))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSRect(x: 0, y: 0, width: 20, height: 2_000).fill()
+        image.unlockFocus()
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
+        #else
+        return onePixelPNGData
+        #endif
     }
 }

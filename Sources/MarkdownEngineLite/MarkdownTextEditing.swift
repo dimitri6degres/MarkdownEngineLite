@@ -94,6 +94,71 @@ public enum MarkdownTextEditing {
     }
 
     @discardableResult
+    public static func insertSeparator(
+        in text: inout String,
+        selectedRange: Range<String.Index>?
+    ) -> Range<String.Index>? {
+        guard let selectedRange else { return nil }
+
+        let insertionIndex = selectedRange.upperBound
+        let insertionOffset = text.distance(from: text.startIndex, to: insertionIndex)
+        let prefix = separatorPrefix(before: insertionIndex, in: text)
+        let suffix = separatorSuffix(after: insertionIndex, in: text)
+        let replacement = prefix + "---" + suffix
+
+        text.insert(contentsOf: replacement, at: insertionIndex)
+
+        let cursorOffset = insertionOffset + replacement.count
+        let cursor = text.index(text.startIndex, offsetBy: cursorOffset)
+        return cursor..<cursor
+    }
+
+    @discardableResult
+    public static func setImageWidth(
+        in text: inout String,
+        imageRange: NSRange,
+        percent: CGFloat
+    ) -> Range<String.Index>? {
+        guard let range = Range(imageRange, in: text) else { return nil }
+
+        let markdown = String(text[range])
+        let baseMarkdown = removingImageWidthAttribute(from: markdown)
+        let replacement: String
+        if percent <= 0 {
+            replacement = baseMarkdown
+        } else {
+            let clampedPercent = Int(min(max(percent.rounded(), 1), 100))
+            replacement = "\(baseMarkdown){width=\(clampedPercent)%}"
+        }
+        let lowerOffset = text.distance(from: text.startIndex, to: range.lowerBound)
+
+        text.replaceSubrange(range, with: replacement)
+
+        let lower = text.index(text.startIndex, offsetBy: lowerOffset)
+        let upper = text.index(lower, offsetBy: replacement.count)
+        return lower..<upper
+    }
+
+    public static func imageRange(
+        containing selectedRange: Range<String.Index>?,
+        in text: String
+    ) -> NSRange? {
+        guard let selectedRange,
+              let nsRange = safeNSRange(selectedRange, in: text) else {
+            return nil
+        }
+
+        return MarkdownStyle.imageReferences(in: text).first { reference in
+            if nsRange.length == 0 {
+                return nsRange.location >= reference.range.location
+                    && nsRange.location <= NSMaxRange(reference.range)
+            }
+
+            return NSIntersectionRange(nsRange, reference.range).length > 0
+        }?.range
+    }
+
+    @discardableResult
     public static func applyHeading(
         level: Int,
         in text: inout String,
@@ -275,6 +340,56 @@ public enum MarkdownTextEditing {
         }
 
         return range.lowerBound..<upperBound
+    }
+
+    private static func separatorPrefix(before index: String.Index, in text: String) -> String {
+        guard index > text.startIndex else { return "" }
+
+        if text[..<index].hasSuffix("\n\n") {
+            return ""
+        }
+        if text[..<index].hasSuffix("\n") {
+            return "\n"
+        }
+        return "\n\n"
+    }
+
+    private static func separatorSuffix(after index: String.Index, in text: String) -> String {
+        guard index < text.endIndex else { return "\n\n" }
+
+        if text[index...].hasPrefix("\n\n") {
+            return ""
+        }
+        if text[index...].hasPrefix("\n") {
+            return "\n"
+        }
+        return "\n\n"
+    }
+
+    private static func removingImageWidthAttribute(from markdown: String) -> String {
+        let pattern = #"\{[ \t]*width[ \t]*=[ \t]*[0-9]{1,3}%[ \t]*\}[ \t]*$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return markdown
+        }
+
+        let range = NSRange(location: 0, length: (markdown as NSString).length)
+        return expression.stringByReplacingMatches(
+            in: markdown,
+            range: range,
+            withTemplate: ""
+        )
+    }
+
+    private static func safeNSRange(_ range: Range<String.Index>, in text: String) -> NSRange? {
+        guard let lowerBound = range.lowerBound.samePosition(in: text.utf16),
+              let upperBound = range.upperBound.samePosition(in: text.utf16) else {
+            return nil
+        }
+
+        let location = text.utf16.distance(from: text.utf16.startIndex, to: lowerBound)
+        let upperLocation = text.utf16.distance(from: text.utf16.startIndex, to: upperBound)
+        guard location <= upperLocation else { return nil }
+        return NSRange(location: location, length: upperLocation - location)
     }
 
     private struct TextEdit {

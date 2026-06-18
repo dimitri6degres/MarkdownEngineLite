@@ -26,6 +26,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		323F847A2FE2D64A0075C957 /* Exceptions for "MarkUp ios" folder in "MarkUp ios" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"MarkUp-ios-Info.plist",
+			);
+			target = 324838142FDEF42300AEC219 /* MarkUp ios */;
+		};
 		3245099A2FDC150E003197E2 /* Exceptions for "MarkUp" folder in "MarkUp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -38,6 +45,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		324838162FDEF42300AEC219 /* MarkUp ios */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				323F847A2FE2D64A0075C957 /* Exceptions for "MarkUp ios" folder in "MarkUp ios" target */,
+			);
 			path = "MarkUp ios";
 			sourceTree = "<group>";
 		};

@@ -22,7 +22,8 @@ It is not a port of the full original engine. Instead, it focuses on a lightweig
 - Code fence markers are revealed when the cursor is anywhere inside the code block.
 - Dynamic edit/preview mode via `Binding<MarkdownEditorMode>`.
 - Optional selected text binding for building formatting toolbars.
-- Optional built-in editor toolbar with formatting buttons.
+- Optional built-in editor toolbar with formatting buttons and image width controls.
+- Local image rendering through an `imageDataProvider`.
 - PDF export as `Data`, `FileDocument`, `Transferable`, or direct file write.
 - No external dependencies.
 - No LaTeX rendering.
@@ -39,11 +40,12 @@ The live editor currently supports:
 - Inline code: `` `code` ``
 - Fenced code blocks: triple backticks
 - Links: `[label](https://example.com)`
-- Images as alt-text links: `![alt](https://example.com/image.png)`
+- Images: `![alt](assets/image.png)`
+- Optional image width attribute: `![alt](assets/image.png){width=50%}`
 - Horizontal rules: `---`
 - Block quotes: `> quote`
 
-Image URLs are not downloaded or rendered as bitmap images. The package displays the alt text and keeps the URL as a link.
+Images are rendered when you provide image data through `MarkdownEditorConfiguration.imageDataProvider`. Without an image provider, the editor keeps the Markdown readable and styles the alt text.
 
 ## Installation
 
@@ -120,6 +122,10 @@ configuration.hidesMarkdownMarkers = true
 configuration.showsEditorToolbar = true
 configuration.editorToolbarButtonSize = 26
 configuration.showsPdfExporter = true
+configuration.imageDataProvider = { path in
+    // Return Data for local paths such as "assets/photo.png".
+    nil
+}
 
 MarkdownEditor(
     text: $text,
@@ -141,8 +147,9 @@ Available configuration values:
 - `autocorrectionDisabled`
 - `spellCheckingDisabled`
 - `hidesMarkdownMarkers`
+- `imageDataProvider`
 
-`showsEditorToolbar` displays the built-in mode, bold, italic, heading, quote, and code block buttons. `showsPdfExporter` controls the built-in PDF export button. `editorToolbarButtonSize` controls the base icon size used by these toolbar buttons.
+`showsEditorToolbar` displays the built-in bold, italic, heading, separator, quote, code block, and image size controls. `showsPdfExporter` controls the built-in PDF export button. `editorToolbarButtonSize` controls the base icon size used by these toolbar buttons.
 
 ## Text Selection
 
@@ -241,6 +248,23 @@ normal -> H1 -> H2 -> normal
 
 `toggleBlockQuote` applies or removes `>` on the selected lines. `toggleCodeBlock` wraps or unwraps the selected lines with fenced code markers.
 
+Images can be resized by updating the optional Markdown width attribute:
+
+```swift
+if let imageRange = MarkdownTextEditing.imageRange(
+    containing: selectedRange,
+    in: text
+) {
+    selectedRange = MarkdownTextEditing.setImageWidth(
+        in: &text,
+        imageRange: imageRange,
+        percent: 50
+    )
+}
+```
+
+Use `percent: 0` to return to automatic sizing. The built-in toolbar exposes this as an `Auto / 25% / 50% / 75% / 100%` menu when the cursor is inside an image Markdown tag.
+
 The package also includes a built-in toolbar using these helpers. Disable it with:
 
 ```swift
@@ -325,11 +349,37 @@ let data = try MarkdownPDFExporter.export(
 
 The PDF renderer includes support for horizontal rules, block quotes, rounded code block backgrounds, and paginated code blocks. When a code block is split across pages, the cut edge is not rounded so the block reads as continuous.
 
+Images are included in PDF export when the same kind of `imageDataProvider` is supplied through `MarkdownPDFExporter.Configuration`.
+
+```swift
+let configuration = MarkdownPDFExporter.Configuration(
+    imageDataProvider: { path in
+        // Return Data for paths referenced by Markdown images.
+        nil
+    }
+)
+
+let data = try MarkdownPDFExporter.export(
+    markdown: text,
+    configuration: configuration
+)
+```
+
 ## Demo Apps
 
 The `Demo` folder contains small iOS and macOS document-based apps named MarkUp. They use SwiftUI `DocumentGroup` and a shared `MarkdownDocument` that reads and writes UTF-8 Markdown text.
 
-The demo declares the Markdown document type as `net.daringfireball.markdown` with `.md` and `.markdown` filename extensions. On iOS, this lets the document browser focus on Markdown files and allows opening compatible files from the Files app.
+The demo declares the Markdown document type as `net.daringfireball.markdown` with `.md` and `.markdown` filename extensions. It also supports TextBundle packages with the `org.textbundle.package` type and `.textbundle` extension. On iOS, this lets the document browser focus on compatible Markdown documents and allows opening them from the Files app.
+
+TextBundle support is intentionally small for now. A `.textbundle` is read from `text.md` or `text.markdown`, keeps `info.json`, and preserves files inside `assets/` when saving again. The demo apps also include an image import button that copies a selected local image into `assets/` and inserts Markdown such as `![Alt text](assets/image.png)`. If the current document is a plain Markdown file, the demo can convert it to a TextBundle before inserting local images.
+
+Image sizing is stored directly in Markdown with a lightweight attribute:
+
+```markdown
+![Alt text](assets/photo.png){width=50%}
+```
+
+`Auto` removes the attribute and displays the image at its natural size, capped to the editor or PDF content width.
 
 The demo keeps editor mode as view state, not document data. This avoids marking a document as edited just because it was opened in preview mode.
 
@@ -340,7 +390,7 @@ The original repository is a macOS AppKit editor with a much broader TextKit 2 e
 - Native `NSTextView` / `UITextView` wrappers.
 - Simple regex-based Markdown styling.
 - No language-aware code highlighting.
-- No embedded remote image rendering.
+- Local images are rendered only when the host app provides the data.
 - No wiki-links.
 - No LaTeX.
 - No advanced table support.

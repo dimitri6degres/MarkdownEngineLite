@@ -1,6 +1,26 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private func safeNSRange(_ range: Range<String.Index>, in text: String) -> NSRange? {
+    guard let lowerBound = range.lowerBound.samePosition(in: text.utf16),
+          let upperBound = range.upperBound.samePosition(in: text.utf16) else {
+        return nil
+    }
+
+    let location = text.utf16.distance(from: text.utf16.startIndex, to: lowerBound)
+    let upperLocation = text.utf16.distance(from: text.utf16.startIndex, to: upperBound)
+    guard location <= upperLocation else {
+        return nil
+    }
+
+    return NSRange(location: location, length: upperLocation - location)
+}
+
+private struct RenderedMarkdownImage {
+    let range: NSRange
+    let frame: CGRect
+}
+
 struct LiveMarkdownTextEditor: View {
     let title: String
     @Binding var text: String
@@ -9,15 +29,17 @@ struct LiveMarkdownTextEditor: View {
 
     let placeholder: String
     let configuration: MarkdownEditorConfiguration
-    @State private var isExportingPDF = false
-    @State private var pdfDocument: MarkdownPDFDocument?
 
     private var isEditable: Bool {
         mode == .edit
     }
 
+    private var selectedImageRange: NSRange? {
+        MarkdownTextEditing.imageRange(containing: selectedRange, in: text)
+    }
+
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .trailing) {
             ZStack(alignment: .topLeading) {
                 PlatformMarkdownTextView(
                     text: $text,
@@ -36,115 +58,178 @@ struct LiveMarkdownTextEditor: View {
             }
             
             
-            VStack(alignment: .trailing, spacing: 10) {
-                if configuration.showsPdfExporter {
-                    CustomButtonLabel(text: "PDF Export",
-                                      image: "export",
-                                      editorToolbarButtonSize: configuration.editorToolbarButtonSize) {
-                        exportCurrentViewToPDF()
+            if configuration.showsEditorToolbar && isEditable {
+                
+                VStack(alignment: .center, spacing: configuration.editorToolbarButtonSize) {
+                    
+                    CustomButtonLabel(text: "Bold",
+                                      image: "bold",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.makeBold(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
                     }
                     
-                }
-                
-                if configuration.showsEditorToolbar {
-                    VStack(alignment: .center) {
-                        
-                        CustomButtonLabel(text: "Change mode",
-                                          image: isEditable ? "eye" : "pen",
-                                          editorToolbarButtonSize: configuration.editorToolbarButtonSize) {
-                            mode = isEditable ? .preview : .edit
-                        }
-                        
-                       
-                        
-                        if isEditable {
-                            
-                            VStack {
-                                
-                                CustomButtonLabel(text: "Bold",
-                                                  image: "bold",
-                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
-                                                  small: true) {
-                                    selectedRange = MarkdownTextEditing.makeBold(
-                                        in: &text,
-                                        selectedRange: selectedRange
-                                    )
-                                }
-                                
-                                CustomButtonLabel(text: "Italic",
-                                                  image: "italic",
-                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
-                                                  small: true) {
-                                    selectedRange = MarkdownTextEditing.makeItalic(
-                                        in: &text,
-                                        selectedRange: selectedRange
-                                    )
-                                }
-                                
-                                CustomButtonLabel(text: "Header",
-                                                  image: "header",
-                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
-                                                  small: true) {
-                                    selectedRange = MarkdownTextEditing.applyHeading(
-                                        in: &text,
-                                        selectedRange: selectedRange
-                                    )
-                                }
-                                
-                                CustomButtonLabel(text: "Quotes",
-                                                  image: "quotes",
-                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
-                                                  small: true) {
-                                    selectedRange = MarkdownTextEditing.toggleBlockQuote(
-                                        in: &text,
-                                        selectedRange: selectedRange
-                                    )
-                                }
-                                
-                                CustomButtonLabel(text: "Block",
-                                                  image: "block",
-                                                  editorToolbarButtonSize: configuration.editorToolbarButtonSize,
-                                                  small: true) {
-                                    selectedRange = MarkdownTextEditing.toggleCodeBlock(
-                                        in: &text,
-                                        selectedRange: selectedRange
-                                    )
-                                }
-                            }
-                            .padding(.vertical, configuration.editorToolbarButtonSize)
-                        }
-                        
+                    CustomButtonLabel(text: "Italic",
+                                      image: "italic",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.makeItalic(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
+                    }
+                    
+                    CustomButtonLabel(text: "Header",
+                                      image: "header",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.applyHeading(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
+                    }
+
+                    CustomButtonLabel(text: "Separator",
+                                      image: "separator",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.insertSeparator(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
+                    }
+                    
+                    CustomButtonLabel(text: "Quotes",
+                                      image: "quotes",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.toggleBlockQuote(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
+                    }
+                    
+                    CustomButtonLabel(text: "Block",
+                                      image: "block",
+                                      size: configuration.editorToolbarButtonSize) {
+                        selectedRange = MarkdownTextEditing.toggleCodeBlock(
+                            in: &text,
+                            selectedRange: selectedRange
+                        )
+                    }
+                    
+//                    Menu {
+//                        Button("Auto") { setSelectedImageWidth(0) }
+//                        Button("25%") { setSelectedImageWidth(25) }
+//                        Button("50%") { setSelectedImageWidth(50) }
+//                        Button("75%") { setSelectedImageWidth(75) }
+//                        Button("100%") { setSelectedImageWidth(100) }
+//                    }
+//                    label: {
+//                        
+//                        CustomButtonLabel(text: "Image size",
+//                                          image: "size",
+//                                          size: configuration.editorToolbarButtonSize) {
+//                            selectedRange = MarkdownTextEditing.toggleCodeBlock(
+//                                in: &text,
+//                                selectedRange: selectedRange
+//                            )
+//                        }
+//                    }
+//                    .opacity(selectedImageRange != nil ? 1 : 0.35)
+//                    .disabled(selectedImageRange == nil)
+                    
+                    ImageWidthMenu(
+                        size: configuration.editorToolbarButtonSize,
+                        isEnabled: selectedImageRange != nil
+                    ) { percent in
+                        setSelectedImageWidth(percent)
                     }
                 }
+                .padding(.vertical, configuration.editorToolbarButtonSize / 2)
+                .padding(.horizontal, configuration.editorToolbarButtonSize / 4)
+                .background(
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.25))
+                        .cornerRadius(10)
+                )
+                .contentShape(Rectangle())
+                
+                
+                .padding(10)
             }
-            .padding(10)
-        }
-        .fileExporter(
-            isPresented: $isExportingPDF,
-            document: pdfDocument,
-            contentType: .pdf,
-            defaultFilename: pdfFilename
-        ) { result in
-            if case let .failure(error) = result {
-                print("Saving PDF failed: \(error)")
-            }
+            
         }
     }
 
-    private func exportCurrentViewToPDF() {
-        do {
-            pdfDocument = try MarkdownPDFExporter.document(markdown: text)
-            isExportingPDF = true
-        } catch {
-            print("PDF export failed: \(error)")
-        }
+    private func setSelectedImageWidth(_ percent: CGFloat) {
+        guard let imageRange = selectedImageRange else { return }
+        selectedRange = MarkdownTextEditing.setImageWidth(
+            in: &text,
+            imageRange: imageRange,
+            percent: percent
+        )
     }
 
-    private var pdfFilename: String {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseName = trimmedTitle.isEmpty ? "Document" : trimmedTitle
-        return baseName.lowercased().hasSuffix(".pdf") ? baseName : baseName + ".pdf"
+    private struct CustomButtonLabel : View {
+        
+        let text : String
+        let image : String
+        let size : CGFloat
+        
+        let action : () -> Void
+
+        
+        var body: some View {
+            Button {
+                action()
+            }
+            label :{
+                Image(image, bundle: MarkdownEngineLiteResources.bundle)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .accessibilityLabel(Text(text))
+        }
+        
     }
+
+    private struct ImageWidthMenu: View {
+        let size: CGFloat
+        let isEnabled: Bool
+        let action: (CGFloat) -> Void
+
+        var body: some View {
+            Menu {
+                Button("Auto") { action(0) }
+                Button("25%") { action(25) }
+                Button("50%") { action(50) }
+                Button("75%") { action(75) }
+                Button("100%") { action(100) }
+            } label: {
+                
+                Image("size", bundle: MarkdownEngineLiteResources.bundle)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size, height: size)
+                    .contentShape(Rectangle())
+                
+//                Image(systemName: "photo")
+//                    .resizable()
+//                    .scaledToFit()
+//                    .frame(width: size, height: size)
+//                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .opacity(isEnabled ? 1 : 0.35)
+            .disabled(!isEnabled)
+            .accessibilityLabel(Text("Image size"))
+        }
+    }
+   
 }
 
 #if os(macOS)
@@ -170,6 +255,10 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 
         let textView = MarkdownNSTextView()
         textView.delegate = context.coordinator
+        textView.isMarkdownEditingEnabled = isEditable
+        textView.onImageWidthChange = { [weak coordinator = context.coordinator] range, percent in
+            coordinator?.setImageWidth(range: range, percent: percent)
+        }
         textView.isRichText = false
         textView.isEditable = isEditable
         textView.isSelectable = true
@@ -205,6 +294,10 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
         context.coordinator.isEditable = isEditable
 
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        (textView as? MarkdownNSTextView)?.isMarkdownEditingEnabled = isEditable
+        (textView as? MarkdownNSTextView)?.onImageWidthChange = { [weak coordinator = context.coordinator] range, percent in
+            coordinator?.setImageWidth(range: range, percent: percent)
+        }
         textView.isEditable = isEditable
         textView.isAutomaticSpellingCorrectionEnabled = isEditable ? !configuration.autocorrectionDisabled : false
         textView.isContinuousSpellCheckingEnabled = isEditable ?  !configuration.spellCheckingDisabled : false
@@ -238,6 +331,9 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
         private var scrollRestoreGeneration = 0
         private var lastStyledText: String?
         private var lastRevealedRanges: [NSRange] = []
+        private var lastNativeSelectedRange: NSRange?
+        private var nativeSelectionText: String?
+        private var lastImageMaxWidth: CGFloat = 0
 
         init(
             text: Binding<String>,
@@ -253,6 +349,8 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            lastNativeSelectedRange = textView.selectedRange()
+            nativeSelectionText = textView.string
             if text != textView.string {
                 text = textView.string
             }
@@ -266,6 +364,20 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
             applyStyle(to: textView)
         }
 
+        func setImageWidth(range: NSRange, percent: CGFloat) {
+            var updatedText = text
+            guard let updatedRange = MarkdownTextEditing.setImageWidth(
+                in: &updatedText,
+                imageRange: range,
+                percent: percent
+            ) else {
+                return
+            }
+
+            text = updatedText
+            selectedRange = updatedRange
+        }
+
         func applyStyle(to textView: NSTextView, force: Bool = false) {
             guard !isApplyingStyle else { return }
 
@@ -274,7 +386,18 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
             let revealedRanges = isEditable
                 ? activeRanges(in: textView.string, selectedRange: selectedRange)
                 : []
-            guard force || textView.string != lastStyledText || revealedRanges != lastRevealedRanges else {
+            let imageMaxWidth = self.imageMaxWidth(in: textView)
+            let hiddenImageRanges = MarkdownStyle.imageReferences(in: textView.string)
+                .map(\.range)
+                .filter { imageRange in
+                    !revealedRanges.contains {
+                        NSIntersectionRange(imageRange, $0).length > 0
+                    }
+                }
+            guard force
+                    || textView.string != lastStyledText
+                    || revealedRanges != lastRevealedRanges
+                    || imageMaxWidth != lastImageMaxWidth else {
                 return
             }
 
@@ -287,16 +410,33 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
                 options: MarkdownStyleOptions(
                     bodyFontSize: configuration.bodyFontSize,
                     hideMarkers: configuration.hidesMarkdownMarkers,
-                    revealedRanges: revealedRanges
+                    revealedRanges: revealedRanges,
+                    imageMaxWidth: imageMaxWidth,
+                    imageDataProvider: configuration.imageDataProvider
                 )
             )
 
+            if let markdownTextView = textView as? MarkdownNSTextView {
+                markdownTextView.imageDataProvider = configuration.imageDataProvider
+                markdownTextView.imageMaxWidth = imageMaxWidth
+                markdownTextView.imageRevealedRanges = revealedRanges
+            }
             textView.textStorage?.setAttributedString(attributed)
-            restoreTemporaryAttributes(temporaryAttributes, in: textView)
+            restoreTemporaryAttributes(
+                temporaryAttributes,
+                in: textView,
+                excluding: hiddenImageRanges
+            )
             textView.selectedRanges = selectedRanges
             textView.needsDisplay = true
             lastStyledText = textView.string
             lastRevealedRanges = revealedRanges
+            lastImageMaxWidth = imageMaxWidth
+        }
+
+        private func imageMaxWidth(in textView: NSTextView) -> CGFloat {
+            let origin = textView.textContainerOrigin
+            return max(0, textView.bounds.width - origin.x - textView.textContainerInset.width)
         }
 
         private func activeRanges(in text: String, selectedRange: NSRange) -> [NSRange] {
@@ -306,6 +446,7 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
         private func updateSelectedRange(from nsRange: NSRange, in text: String) {
             guard !isApplyingStyle, !isApplyingBoundSelection else { return }
 
+            lastNativeSelectedRange = nsRange
             let range = Range(nsRange, in: text)
             guard selectedRange != range else { return }
 
@@ -347,8 +488,18 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
                 return
             }
 
-            let nsRange = NSRange(selectedRange, in: text)
-            guard NSMaxRange(nsRange) <= (textView.string as NSString).length else { return }
+            let textLength = (textView.string as NSString).length
+            let nsRange: NSRange
+            if nativeSelectionText == text,
+               let lastNativeSelectedRange,
+               NSMaxRange(lastNativeSelectedRange) <= textLength {
+                nsRange = lastNativeSelectedRange
+            } else {
+                nsRange = safeNSRange(selectedRange, in: text)
+                    ?? lastNativeSelectedRange
+                    ?? NSRange(location: textLength, length: 0)
+            }
+            guard NSMaxRange(nsRange) <= textLength else { return }
             if isEditable, textView.window?.firstResponder !== textView {
                 textView.window?.makeFirstResponder(textView)
             }
@@ -464,12 +615,16 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 
         private func restoreTemporaryAttributes(
             _ temporaryAttributes: [(attributes: [NSAttributedString.Key: Any], range: NSRange)],
-            in textView: NSTextView
+            in textView: NSTextView,
+            excluding excludedRanges: [NSRange] = []
         ) {
             guard let layoutManager = textView.layoutManager else { return }
             let length = (textView.string as NSString).length
 
             for item in temporaryAttributes where NSMaxRange(item.range) <= length {
+                guard !excludedRanges.contains(where: { NSIntersectionRange(item.range, $0).length > 0 }) else {
+                    continue
+                }
                 layoutManager.addTemporaryAttributes(item.attributes, forCharacterRange: item.range)
             }
         }
@@ -479,6 +634,20 @@ struct PlatformMarkdownTextView: NSViewRepresentable {
 final class MarkdownNSTextView: NSTextView {
     private var automaticScrollingSuppressionCount = 0
     private var allowsSuppressedScrollChange = false
+    private var renderedImageTargets: [RenderedMarkdownImage] = []
+    private var imageWidthPalette: NSStackView?
+    private var activeImageRange: NSRange?
+    var imageDataProvider: ((String) -> Data?)?
+    var imageMaxWidth: CGFloat = 0
+    var imageRevealedRanges: [NSRange] = []
+    var isMarkdownEditingEnabled = true {
+        didSet {
+            if !isMarkdownEditingEnabled {
+                hideImageWidthPalette()
+            }
+        }
+    }
+    var onImageWidthChange: ((NSRange, CGFloat) -> Void)?
 
     private var suppressesSelectionScrolling: Bool {
         automaticScrollingSuppressionCount > 0
@@ -487,6 +656,7 @@ final class MarkdownNSTextView: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         drawCodeBlockBackgrounds()
         super.draw(dirtyRect)
+        drawRenderedImages()
         drawBlockQuoteBars()
         drawHorizontalRules()
     }
@@ -499,6 +669,18 @@ final class MarkdownNSTextView: NSTextView {
     override func scroll(_ clipView: NSClipView, to point: NSPoint) {
         guard !suppressesSelectionScrolling || allowsSuppressedScrollChange else { return }
         super.scroll(clipView, to: point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if isMarkdownEditingEnabled,
+           let target = renderedImageTargets.first(where: { $0.frame.contains(location) }) {
+            showImageWidthPalette(for: target)
+            return
+        }
+
+        hideImageWidthPalette()
+        super.mouseDown(with: event)
     }
 
     func beginSuppressingAutomaticScrolling() {
@@ -606,6 +788,147 @@ final class MarkdownNSTextView: NSTextView {
             rect.fill()
         }
     }
+
+    private func drawRenderedImages() {
+        guard let layoutManager else { return }
+        renderedImageTargets = []
+
+        let options = MarkdownStyleOptions(
+            bodyFontSize: 0,
+            hideMarkers: true,
+            revealedRanges: imageRevealedRanges,
+            imageMaxWidth: imageMaxWidth,
+            imageDataProvider: imageDataProvider
+        )
+
+        let source = string as NSString
+        var imageOffsetsByParagraph: [String: CGFloat] = [:]
+
+        for reference in MarkdownStyle.imageReferences(in: string) {
+            guard !imageRevealedRanges.contains(where: { NSIntersectionRange(reference.range, $0).length > 0 }),
+                  let data = imageDataProvider?(reference.path),
+                  let image = NSImage(data: data),
+                  let size = MarkdownStyle.resolvedImageSize(
+                    for: reference.path,
+                    widthPercent: reference.widthPercent,
+                    options: options
+                  ) else {
+                continue
+            }
+
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: reference.range,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
+
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphRange.location,
+                effectiveRange: nil
+            )
+            let origin = textContainerOrigin
+            let paragraphRange = source.paragraphRange(for: reference.range)
+            let paragraphKey = "\(paragraphRange.location)-\(paragraphRange.length)"
+            let xOffset = imageOffsetsByParagraph[paragraphKey, default: 0]
+            let rect = CGRect(
+                x: origin.x + xOffset,
+                y: origin.y + lineRect.minY + MarkdownStyle.imageVerticalPadding,
+                width: size.width,
+                height: size.height
+            )
+            imageOffsetsByParagraph[paragraphKey] = xOffset + size.width
+            image.draw(
+                in: rect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: nil
+            )
+            renderedImageTargets.append(RenderedMarkdownImage(range: reference.range, frame: rect))
+        }
+
+        updateImageWidthPalettePosition()
+    }
+
+    private func showImageWidthPalette(for target: RenderedMarkdownImage) {
+        activeImageRange = target.range
+        let palette = imageWidthPalette ?? makeImageWidthPalette()
+        if palette.superview == nil {
+            addSubview(palette)
+        }
+        imageWidthPalette = palette
+        position(palette, near: target.frame)
+        keepImageWidthPaletteInFront()
+    }
+
+    private func hideImageWidthPalette() {
+        activeImageRange = nil
+        imageWidthPalette?.removeFromSuperview()
+    }
+
+    private func updateImageWidthPalettePosition() {
+        guard let activeImageRange,
+              let palette = imageWidthPalette,
+              let target = renderedImageTargets.first(where: { $0.range == activeImageRange }) else {
+            hideImageWidthPalette()
+            return
+        }
+
+        position(palette, near: target.frame)
+        keepImageWidthPaletteInFront()
+    }
+
+    private func makeImageWidthPalette() -> NSStackView {
+        let stackView = NSStackView()
+        stackView.orientation = .horizontal
+        stackView.spacing = 4
+        stackView.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+        stackView.wantsLayer = true
+        stackView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.94).cgColor
+        stackView.layer?.cornerRadius = 8
+        stackView.layer?.borderColor = NSColor.separatorColor.cgColor
+        stackView.layer?.borderWidth = 1
+        stackView.layer?.zPosition = 10_000
+
+        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
+            let button = NSButton(title: option.title, target: self, action: #selector(changeImageWidth(_:)))
+            button.tag = option.percent
+            button.bezelStyle = .rounded
+            button.font = .systemFont(ofSize: 11, weight: .medium)
+            stackView.addArrangedSubview(button)
+        }
+
+        return stackView
+    }
+
+    private func position(_ palette: NSView, near imageFrame: CGRect) {
+        palette.layoutSubtreeIfNeeded()
+        let fittingSize = palette.fittingSize
+        let centeredX = imageFrame.midX - fittingSize.width / 2
+        let x = min(
+            max(centeredX, bounds.minX),
+            max(bounds.maxX - fittingSize.width, bounds.minX)
+        )
+        let centeredY = imageFrame.midY - fittingSize.height / 2
+        let y = min(
+            max(centeredY, bounds.minY),
+            max(bounds.maxY - fittingSize.height, bounds.minY)
+        )
+        palette.frame = CGRect(origin: CGPoint(x: x, y: y), size: fittingSize)
+    }
+
+    private func keepImageWidthPaletteInFront() {
+        guard let imageWidthPalette else { return }
+        addSubview(imageWidthPalette, positioned: .above, relativeTo: nil)
+        imageWidthPalette.layer?.zPosition = 10_000
+    }
+
+    @objc private func changeImageWidth(_ sender: NSButton) {
+        guard let activeImageRange else { return }
+        onImageWidthChange?(activeImageRange, CGFloat(sender.tag))
+        hideImageWidthPalette()
+    }
 }
 #endif
 
@@ -628,6 +951,10 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> MarkdownUITextView {
         let textView = MarkdownUITextView()
         textView.delegate = context.coordinator
+        textView.isMarkdownEditingEnabled = isEditable
+        textView.onImageWidthChange = { [weak coordinator = context.coordinator] range, percent in
+            coordinator?.setImageWidth(range: range, percent: percent)
+        }
         textView.backgroundColor = .clear
         textView.isEditable = isEditable
         textView.isSelectable = true
@@ -653,28 +980,29 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
     func updateUIView(_ textView: MarkdownUITextView, context: Context) {
         context.coordinator.configuration = configuration
         context.coordinator.isEditable = isEditable
+        textView.isMarkdownEditingEnabled = isEditable
+        textView.onImageWidthChange = { [weak coordinator = context.coordinator] range, percent in
+            coordinator?.setImageWidth(range: range, percent: percent)
+        }
         textView.isEditable = isEditable
         textView.autocorrectionType = configuration.autocorrectionDisabled ? .no : .default
         textView.spellCheckingType = configuration.spellCheckingDisabled ? .no : .default
 
-        let needsTextSync = textView.text != text
-        context.coordinator.preservingScrollPosition(in: textView) {
-            context.coordinator.syncFromBinding {
-                if needsTextSync {
+        if textView.text != text {
+            context.coordinator.preservingScrollPosition(in: textView) {
+                context.coordinator.syncFromBinding {
                     textView.text = text
                     context.coordinator.applyBoundSelection(to: textView)
                 }
-            }
 
-            context.coordinator.applyStyle(to: textView)
-            context.coordinator.syncFromBinding {
-                if needsTextSync {
+                context.coordinator.applyStyle(to: textView)
+                context.coordinator.syncFromBinding {
                     context.coordinator.applyBoundSelection(to: textView)
                 }
             }
-        }
-        if needsTextSync {
             context.coordinator.applyBoundSelectionAfterLayout(to: textView)
+        } else {
+            context.coordinator.applyStyle(to: textView)
         }
     }
 
@@ -690,6 +1018,9 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         private var textChangeGeneration = 0
         private var lastStyledText: String?
         private var lastRevealedRanges: [NSRange] = []
+        private var lastNativeSelectedRange: NSRange?
+        private var nativeSelectionText: String?
+        private var lastImageMaxWidth: CGFloat = 0
 
         init(
             text: Binding<String>,
@@ -704,6 +1035,8 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            lastNativeSelectedRange = textView.selectedRange
+            nativeSelectionText = textView.text
             if text != textView.text {
                 text = textView.text
             }
@@ -718,23 +1051,45 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
                 }
 
                 self.updateSelectedRange(from: textView.selectedRange, in: textView.text)
-                self.applyStyle(to: textView, force: true)
+                self.applyStyle(to: textView, force: true, preservesScrollRepeatedly: false)
             }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             updateSelectedRange(from: textView.selectedRange, in: textView.text)
-            applyStyle(to: textView)
+            applyStyle(to: textView, preservesScrollRepeatedly: false)
         }
 
-        func applyStyle(to textView: UITextView, force: Bool = false) {
+        func setImageWidth(range: NSRange, percent: CGFloat) {
+            var updatedText = text
+            guard let updatedRange = MarkdownTextEditing.setImageWidth(
+                in: &updatedText,
+                imageRange: range,
+                percent: percent
+            ) else {
+                return
+            }
+
+            text = updatedText
+            selectedRange = updatedRange
+        }
+
+        func applyStyle(
+            to textView: UITextView,
+            force: Bool = false,
+            preservesScrollRepeatedly: Bool = true
+        ) {
             guard !isApplyingStyle else { return }
 
             let selectedRange = textView.selectedRange
             let revealedRanges = isEditable
                 ? activeRanges(in: textView.text, selectedRange: selectedRange)
                 : []
-            guard force || textView.text != lastStyledText || revealedRanges != lastRevealedRanges else {
+            let imageMaxWidth = self.imageMaxWidth(in: textView)
+            guard force
+                    || textView.text != lastStyledText
+                    || revealedRanges != lastRevealedRanges
+                    || imageMaxWidth != lastImageMaxWidth else {
                 return
             }
 
@@ -746,19 +1101,44 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
                 options: MarkdownStyleOptions(
                     bodyFontSize: configuration.bodyFontSize,
                     hideMarkers: configuration.hidesMarkdownMarkers,
-                    revealedRanges: revealedRanges
+                    revealedRanges: revealedRanges,
+                    imageMaxWidth: imageMaxWidth,
+                    imageDataProvider: configuration.imageDataProvider
                 )
             )
 
-            preservingScrollPosition(in: textView) {
-                textView.attributedText = attributed
-                setSelectedRange(selectedRange, in: textView)
-                (textView as? MarkdownUITextView)?.updateCodeBlockBackgrounds()
-                (textView as? MarkdownUITextView)?.updateBlockQuoteBars()
-                (textView as? MarkdownUITextView)?.updateHorizontalRules()
+            if let markdownTextView = textView as? MarkdownUITextView {
+                markdownTextView.imageDataProvider = configuration.imageDataProvider
+                markdownTextView.imageMaxWidth = imageMaxWidth
+                markdownTextView.imageRevealedRanges = revealedRanges
+            }
+            let applyAttributedText = {
+                textView.textStorage.setAttributedString(attributed)
+                self.setSelectedRange(selectedRange, in: textView)
+                let markdownTextView = textView as? MarkdownUITextView
+                markdownTextView?.updateCodeBlockBackgrounds()
+                markdownTextView?.updateRenderedImages()
+                markdownTextView?.updateBlockQuoteBars()
+                markdownTextView?.updateHorizontalRules()
+            }
+
+            if preservesScrollRepeatedly {
+                preservingScrollPosition(in: textView, applyAttributedText)
+            } else {
+                let contentOffset = textView.contentOffset
+                let markdownTextView = textView as? MarkdownUITextView
+                markdownTextView?.beginSuppressingAutomaticScrolling()
+                applyAttributedText()
+                markdownTextView?.endSuppressingAutomaticScrolling()
+                restoreContentOffset(contentOffset, in: textView)
             }
             lastStyledText = textView.text
             lastRevealedRanges = revealedRanges
+            lastImageMaxWidth = imageMaxWidth
+        }
+
+        private func imageMaxWidth(in textView: UITextView) -> CGFloat {
+            max(0, textView.bounds.width - textView.textContainerInset.left - textView.textContainerInset.right)
         }
 
         private func activeRanges(in text: String, selectedRange: NSRange) -> [NSRange] {
@@ -768,6 +1148,7 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
         private func updateSelectedRange(from nsRange: NSRange, in text: String) {
             guard !isApplyingStyle, !isApplyingBoundSelection else { return }
 
+            lastNativeSelectedRange = nsRange
             let range = Range(nsRange, in: text)
             guard selectedRange != range else { return }
 
@@ -797,9 +1178,19 @@ struct PlatformMarkdownTextView: UIViewRepresentable {
                 return
             }
 
-            let nsRange = NSRange(selectedRange, in: text)
             let nativeText = textView.text ?? ""
-            guard NSMaxRange(nsRange) <= (nativeText as NSString).length else { return }
+            let textLength = (nativeText as NSString).length
+            let nsRange: NSRange
+            if nativeSelectionText == text,
+               let lastNativeSelectedRange,
+               NSMaxRange(lastNativeSelectedRange) <= textLength {
+                nsRange = lastNativeSelectedRange
+            } else {
+                nsRange = safeNSRange(selectedRange, in: text)
+                    ?? lastNativeSelectedRange
+                    ?? NSRange(location: textLength, length: 0)
+            }
+            guard NSMaxRange(nsRange) <= textLength else { return }
             setSelectedRange(nsRange, in: textView)
         }
 
@@ -897,8 +1288,30 @@ final class MarkdownUITextView: UITextView {
     private let horizontalRuleLayerName = "MarkdownEngineLiteHorizontalRule"
     private let codeBlockLayerName = "MarkdownEngineLiteCodeBlock"
     private let blockQuoteLayerName = "MarkdownEngineLiteBlockQuote"
+    private let imageLayerName = "MarkdownEngineLiteImage"
     private var automaticScrollingSuppressionCount = 0
-    private var allowsSuppressedContentOffsetChange = false
+    private var renderedImageTargets: [RenderedMarkdownImage] = []
+    private var imageWidthPalette: UIStackView?
+    private var activeImageRange: NSRange?
+    var imageDataProvider: ((String) -> Data?)?
+    var imageMaxWidth: CGFloat = 0
+    var imageRevealedRanges: [NSRange] = []
+    var isMarkdownEditingEnabled = true {
+        didSet {
+            if !isMarkdownEditingEnabled {
+                hideImageWidthPalette()
+            }
+        }
+    }
+    var onImageWidthChange: ((NSRange, CGFloat) -> Void)?
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
 
     var suppressesSelectionScrolling: Bool {
         automaticScrollingSuppressionCount > 0
@@ -912,21 +1325,9 @@ final class MarkdownUITextView: UITextView {
         didSet { setNeedsLayout() }
     }
 
-    override var contentOffset: CGPoint {
-        didSet {
-            updateBlockQuoteBars()
-            updateHorizontalRules()
-        }
-    }
-
     override func scrollRangeToVisible(_ range: NSRange) {
         guard !suppressesSelectionScrolling else { return }
         super.scrollRangeToVisible(range)
-    }
-
-    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
-        guard !suppressesSelectionScrolling || allowsSuppressedContentOffsetChange else { return }
-        super.setContentOffset(contentOffset, animated: animated)
     }
 
     func beginSuppressingAutomaticScrolling() {
@@ -938,14 +1339,13 @@ final class MarkdownUITextView: UITextView {
     }
 
     func setContentOffsetWhileSuppressed(_ contentOffset: CGPoint) {
-        allowsSuppressedContentOffsetChange = true
         setContentOffset(contentOffset, animated: false)
-        allowsSuppressedContentOffsetChange = false
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         updateCodeBlockBackgrounds()
+        updateRenderedImages()
         updateBlockQuoteBars()
         updateHorizontalRules()
     }
@@ -989,6 +1389,154 @@ final class MarkdownUITextView: UITextView {
             )
             layer.insertSublayer(backgroundLayer, at: 0)
         }
+    }
+
+    func updateRenderedImages() {
+        layer.sublayers?
+            .filter { $0.name == imageLayerName }
+            .forEach { $0.removeFromSuperlayer() }
+        renderedImageTargets = []
+
+        let text = self.text ?? ""
+        guard !text.isEmpty else { return }
+
+        layoutManager.ensureLayout(for: textContainer)
+
+        let options = MarkdownStyleOptions(
+            bodyFontSize: 0,
+            hideMarkers: true,
+            revealedRanges: imageRevealedRanges,
+            imageMaxWidth: imageMaxWidth,
+            imageDataProvider: imageDataProvider
+        )
+
+        let source = text as NSString
+        var imageOffsetsByParagraph: [String: CGFloat] = [:]
+
+        for reference in MarkdownStyle.imageReferences(in: text) {
+            guard !imageRevealedRanges.contains(where: { NSIntersectionRange(reference.range, $0).length > 0 }),
+                  let data = imageDataProvider?(reference.path),
+                  let image = UIImage(data: data),
+                  let cgImage = image.cgImage,
+                  let size = MarkdownStyle.resolvedImageSize(
+                    for: reference.path,
+                    widthPercent: reference.widthPercent,
+                    options: options
+                  ) else {
+                continue
+            }
+
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: reference.range,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
+
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphRange.location,
+                effectiveRange: nil
+            )
+            let paragraphRange = source.paragraphRange(for: reference.range)
+            let paragraphKey = "\(paragraphRange.location)-\(paragraphRange.length)"
+            let xOffset = imageOffsetsByParagraph[paragraphKey, default: 0]
+            let frame = CGRect(
+                x: textContainerInset.left + xOffset,
+                y: textContainerInset.top + lineRect.minY + MarkdownStyle.imageVerticalPadding,
+                width: size.width,
+                height: size.height
+            )
+            imageOffsetsByParagraph[paragraphKey] = xOffset + size.width
+
+            let imageLayer = CALayer()
+            imageLayer.name = imageLayerName
+            imageLayer.contents = cgImage
+            imageLayer.contentsScale = image.scale
+            imageLayer.contentsGravity = .resizeAspect
+            imageLayer.frame = frame
+            layer.addSublayer(imageLayer)
+            renderedImageTargets.append(RenderedMarkdownImage(range: reference.range, frame: frame))
+        }
+
+        updateImageWidthPalettePosition()
+    }
+
+    private func showImageWidthPalette(for target: RenderedMarkdownImage) {
+        activeImageRange = target.range
+        let palette = imageWidthPalette ?? makeImageWidthPalette()
+        if palette.superview == nil {
+            addSubview(palette)
+        }
+        imageWidthPalette = palette
+        position(palette, near: target.frame)
+    }
+
+    private func hideImageWidthPalette() {
+        activeImageRange = nil
+        imageWidthPalette?.removeFromSuperview()
+    }
+
+    private func updateImageWidthPalettePosition() {
+        guard let activeImageRange,
+              let palette = imageWidthPalette,
+              let target = renderedImageTargets.first(where: { $0.range == activeImageRange }) else {
+            hideImageWidthPalette()
+            return
+        }
+
+        position(palette, near: target.frame)
+    }
+
+    private func makeImageWidthPalette() -> UIStackView {
+        let stackView = UIStackView()
+        stackView.axis = .horizontal
+        stackView.spacing = 4
+        stackView.alignment = .center
+        stackView.layoutMargins = UIEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+        stackView.isLayoutMarginsRelativeArrangement = true
+        stackView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.94)
+        stackView.layer.cornerRadius = 8
+        stackView.layer.borderColor = UIColor.separator.cgColor
+        stackView.layer.borderWidth = 1
+        stackView.layer.zPosition = 10_000
+
+        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
+            let button = UIButton(type: .system)
+            button.tag = option.percent
+            button.setTitle(option.title, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
+            button.addTarget(self, action: #selector(changeImageWidth(_:)), for: .touchUpInside)
+            stackView.addArrangedSubview(button)
+        }
+
+        return stackView
+    }
+
+    private func position(_ palette: UIView, near imageFrame: CGRect) {
+        let fittingSize = palette.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        let centeredX = imageFrame.midX - fittingSize.width / 2
+        let x = min(
+            max(centeredX, bounds.minX),
+            max(bounds.maxX - fittingSize.width, bounds.minX)
+        )
+        let centeredY = imageFrame.midY - fittingSize.height / 2
+        let y = min(
+            max(centeredY, bounds.minY),
+            max(bounds.maxY - fittingSize.height, bounds.minY)
+        )
+        palette.frame = CGRect(origin: CGPoint(x: x, y: y), size: fittingSize)
+    }
+
+    private func keepImageWidthPaletteInFront() {
+        guard let imageWidthPalette else { return }
+        bringSubviewToFront(imageWidthPalette)
+        imageWidthPalette.layer.zPosition = 10_000
+    }
+
+    @objc private func changeImageWidth(_ sender: UIButton) {
+        guard let activeImageRange else { return }
+        onImageWidthChange?(activeImageRange, CGFloat(sender.tag))
+        hideImageWidthPalette()
     }
 
     func updateBlockQuoteBars() {
@@ -1054,8 +1602,6 @@ final class MarkdownUITextView: UITextView {
             let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
             let x = textContainerInset.left
             let y = textContainerInset.top + rect.midY - lineHeight / 2
-            let visibleY = y - contentOffset.y
-            guard visibleY >= -lineHeight, visibleY <= bounds.height + lineHeight else { continue }
 
             let ruleLayer = CALayer()
             ruleLayer.name = horizontalRuleLayerName
@@ -1066,42 +1612,3 @@ final class MarkdownUITextView: UITextView {
     }
 }
 #endif
-
-
-
-
-struct CustomButtonLabel : View {
-    
-    let text : String
-    let image : String
-    let editorToolbarButtonSize: CGFloat
-    var small : Bool = false
-    
-    let action : () -> Void
-
-    private var buttonSize: (CGFloat, CGFloat)  {
-        return (editorToolbarButtonSize * (small ? 0.8 : 1), (editorToolbarButtonSize + 10) * (small ? 0.8 : 1))
-    }
-    
-    var body: some View {
-        Button {
-            action()
-        }
-        label :{
-            Image(image, bundle: MarkdownEngineLiteResources.bundle)
-                .resizable()
-                .scaledToFit()
-                .frame(width: buttonSize.0, height: buttonSize.0)
-                .frame(width: buttonSize.1, height: buttonSize.1)
-                .background(
-                    Circle()
-                        .fill(Color.secondary.opacity(0.25))
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.primary)
-        .accessibilityLabel(Text(text))
-    }
-    
-}

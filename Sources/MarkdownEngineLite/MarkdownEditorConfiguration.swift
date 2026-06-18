@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct MarkdownEditorConfiguration: Sendable {
+public struct MarkdownEditorConfiguration {
     public var editorFont: Font
     public var bodyFontSize: CGFloat
     public var contentInsets: EdgeInsets
@@ -11,6 +11,7 @@ public struct MarkdownEditorConfiguration: Sendable {
     public var autocorrectionDisabled: Bool
     public var spellCheckingDisabled: Bool
     public var hidesMarkdownMarkers: Bool
+    public var imageDataProvider: ((String) -> Data?)?
 
 
     public init(
@@ -19,11 +20,12 @@ public struct MarkdownEditorConfiguration: Sendable {
         contentInsets: EdgeInsets = EdgeInsets(top: 12, leading: 50, bottom: 12, trailing: 50),
         showsModePicker: Bool = false,
         showsEditorToolbar: Bool = true,
-        editorToolbarButtonSize: CGFloat = 26,
+        editorToolbarButtonSize: CGFloat = 18,
         showsPdfExporter: Bool = true,
-        autocorrectionDisabled: Bool = true,
+        autocorrectionDisabled: Bool = false,
         spellCheckingDisabled: Bool = false,
-        hidesMarkdownMarkers: Bool = true
+        hidesMarkdownMarkers: Bool = true,
+        imageDataProvider: ((String) -> Data?)? = nil
     ) {
         self.editorFont = editorFont
         self.bodyFontSize = bodyFontSize
@@ -35,6 +37,7 @@ public struct MarkdownEditorConfiguration: Sendable {
         self.autocorrectionDisabled = autocorrectionDisabled
         self.spellCheckingDisabled = spellCheckingDisabled
         self.hidesMarkdownMarkers = hidesMarkdownMarkers
+        self.imageDataProvider = imageDataProvider
       
     }
 

@@ -14,6 +14,15 @@ struct MarkdownStyleOptions {
     var bodyFontSize: CGFloat
     var hideMarkers: Bool
     var revealedRanges: [NSRange]
+    var imageMaxWidth: CGFloat = 0
+    var imageMaxHeight: CGFloat = 0
+    var imageDataProvider: ((String) -> Data?)? = nil
+}
+
+struct MarkdownImageReference {
+    let range: NSRange
+    let path: String
+    let widthPercent: CGFloat?
 }
 
 enum MarkdownStyle {
@@ -25,6 +34,7 @@ enum MarkdownStyle {
     static let codeBlockCornerRadius: CGFloat = 10
     static let blockQuoteInset: CGFloat = 16
     static let blockQuoteBarWidth: CGFloat = 6
+    static let imageVerticalPadding: CGFloat = 10
 
     static func horizontalRuleRanges(in text: String) -> [NSRange] {
         let nsText = text as NSString
@@ -42,6 +52,30 @@ enum MarkdownStyle {
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
         return matches(#"(?m)^[ \t]*>[ \t]?.*$"#, in: text, range: fullRange).map(\.range)
+    }
+
+    static func imageReferences(in text: String) -> [MarkdownImageReference] {
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        return matches(imagePattern, in: text, range: fullRange).compactMap { match in
+            guard !intersectsFencedCode(match.range, source: nsText) else { return nil }
+
+            let path = nsText.substring(with: match.range(at: 2))
+            let widthPercentRange = match.range(at: 3)
+            let widthPercent: CGFloat?
+            if widthPercentRange.location != NSNotFound,
+               let value = Double(nsText.substring(with: widthPercentRange)) {
+                widthPercent = CGFloat(min(max(value, 1), 100))
+            } else {
+                widthPercent = nil
+            }
+
+            return MarkdownImageReference(
+                range: match.range,
+                path: path,
+                widthPercent: widthPercent
+            )
+        }
     }
 
     static func revealedRanges(for text: String, selectedRange: NSRange) -> [NSRange] {
@@ -263,12 +297,35 @@ enum MarkdownStyle {
         fullRange: NSRange,
         options: MarkdownStyleOptions
     ) {
-        let pattern = #"!\[([^\]]*)\]\(([^\)]+)\)"#
-        for match in matches(pattern, in: source as String, range: fullRange) {
+        for match in matches(imagePattern, in: source as String, range: fullRange) {
             guard !intersectsFencedCode(match.range, source: source) else { continue }
 
             let altRange = match.range(at: 1)
             let urlRange = match.range(at: 2)
+            let path = source.substring(with: urlRange)
+            let revealed = options.revealedRanges.contains {
+                NSIntersectionRange(match.range, $0).length > 0
+            }
+            let widthPercentRange = match.range(at: 3)
+            let widthPercent = widthPercentRange.location == NSNotFound
+                ? nil
+                : Double(source.substring(with: widthPercentRange)).map { CGFloat($0) }
+
+            if !revealed,
+               let imageSize = resolvedImageSize(
+                for: path,
+                widthPercent: widthPercent,
+                options: options
+               ) {
+                let paragraphRange = source.paragraphRange(for: match.range)
+                output.addAttribute(
+                    .paragraphStyle,
+                    value: imageParagraphStyle(height: imageSize.height),
+                    range: paragraphRange
+                )
+                hide(match.range, in: output, options: options)
+                continue
+            }
 
             if altRange.length > 0 {
                 output.addAttributes([
@@ -285,6 +342,38 @@ enum MarkdownStyle {
                 options: options
             )
         }
+    }
+
+    static func resolvedImageSize(
+        for path: String,
+        widthPercent: CGFloat?,
+        options: MarkdownStyleOptions
+    ) -> CGSize? {
+        guard options.imageMaxWidth > 0,
+              let data = options.imageDataProvider?(path),
+              let originalSize = nativeImageSize(from: data),
+              originalSize.width > 0,
+              originalSize.height > 0 else {
+            return nil
+        }
+
+        let cappedMaxWidth = max(1, options.imageMaxWidth)
+        let displayWidth: CGFloat
+        if let widthPercent {
+            displayWidth = cappedMaxWidth * min(max(widthPercent, 1), 100) / 100
+        } else {
+            displayWidth = min(originalSize.width, cappedMaxWidth)
+        }
+
+        let aspectRatio = originalSize.width / originalSize.height
+        var size = CGSize(width: displayWidth, height: displayWidth / aspectRatio)
+
+        if options.imageMaxHeight > 0, size.height > options.imageMaxHeight {
+            let scale = options.imageMaxHeight / size.height
+            size = CGSize(width: size.width * scale, height: options.imageMaxHeight)
+        }
+
+        return size
     }
 
     private static func styleFencedCode(
@@ -396,7 +485,8 @@ enum MarkdownStyle {
 
         output.addAttributes([
             .font: MarkdownNativeFont.systemFont(ofSize: 0.1),
-            .foregroundColor: MarkdownNativeColor.clear
+            .foregroundColor: MarkdownNativeColor.clear,
+            NSAttributedString.Key("NSSpellingState"): 0
         ], range: range)
     }
 
@@ -407,6 +497,8 @@ enum MarkdownStyle {
 
         return regex.matches(in: text, range: range)
     }
+
+    private static let imagePattern = #"!\[([^\]]*)\]\(([^\)]+)\)(?:\{[ \t]*width[ \t]*=[ \t]*([0-9]{1,3})%[ \t]*\})?"#
 
     private static func intersectsFencedCode(_ range: NSRange, source: NSString) -> Bool {
         fencedCodeBlockRanges(in: source as String).contains {
@@ -517,6 +609,22 @@ enum MarkdownStyle {
         paragraph.headIndent = codeBlockHorizontalPadding
         paragraph.tailIndent = -codeBlockHorizontalPadding
         return paragraph
+    }
+
+    private static func imageParagraphStyle(height: CGFloat) -> NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = height + imageVerticalPadding * 2
+        paragraph.maximumLineHeight = height + imageVerticalPadding * 2
+        paragraph.paragraphSpacing = 12
+        return paragraph
+    }
+
+    private static func nativeImageSize(from data: Data) -> CGSize? {
+        #if os(macOS)
+        return NSImage(data: data)?.size
+        #else
+        return UIImage(data: data)?.size
+        #endif
     }
 
     private static func italicFont(ofSize size: CGFloat) -> MarkdownNativeFont {

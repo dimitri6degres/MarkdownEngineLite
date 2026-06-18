@@ -25,19 +25,22 @@ public enum MarkdownPDFExporter {
         }
     }
 
-    public struct Configuration: Sendable {
+    public struct Configuration {
         public var pageSize: CGSize
         public var margins: Margins
         public var bodyFontSize: CGFloat
+        public var imageDataProvider: ((String) -> Data?)?
 
         public init(
             pageSize: CGSize = CGSize(width: 595.2, height: 841.8),
             margins: Margins = Margins(top: 56, left: 56, bottom: 56, right: 56),
-            bodyFontSize: CGFloat = 12
+            bodyFontSize: CGFloat = 12,
+            imageDataProvider: ((String) -> Data?)? = nil
         ) {
             self.pageSize = pageSize
             self.margins = margins
             self.bodyFontSize = bodyFontSize
+            self.imageDataProvider = imageDataProvider
         }
 
         public static let `default` = Configuration()
@@ -52,7 +55,16 @@ public enum MarkdownPDFExporter {
             options: MarkdownStyleOptions(
                 bodyFontSize: configuration.bodyFontSize,
                 hideMarkers: true,
-                revealedRanges: []
+                revealedRanges: [],
+                imageMaxWidth: configuration.pageSize.width - configuration.margins.left - configuration.margins.right,
+                imageMaxHeight: max(
+                    1,
+                    configuration.pageSize.height
+                        - configuration.margins.top
+                        - configuration.margins.bottom
+                        - MarkdownStyle.imageVerticalPadding * 2
+                ),
+                imageDataProvider: configuration.imageDataProvider
             )
         )
 
@@ -92,6 +104,7 @@ public enum MarkdownPDFExporter {
 
 public struct MarkdownPDFDocument: FileDocument {
     public static var readableContentTypes: [UTType] { [.pdf] }
+    public static var writableContentTypes: [UTType] { [.pdf] }
 
     public var data: Data
 
@@ -170,6 +183,9 @@ private final class PDFRenderer {
         textContainers.removeAll()
 
         let size = contentRect.size
+        var previousGlyphUpperBound = -1
+        let maximumPageCount = max(layoutManager.numberOfGlyphs + 1, 1)
+
         repeat {
             let container = NSTextContainer(size: size)
             container.lineFragmentPadding = 0
@@ -181,6 +197,13 @@ private final class PDFRenderer {
             if NSMaxRange(glyphRange) >= layoutManager.numberOfGlyphs {
                 break
             }
+
+            guard glyphRange.length > 0,
+                  NSMaxRange(glyphRange) > previousGlyphUpperBound,
+                  textContainers.count < maximumPageCount else {
+                break
+            }
+            previousGlyphUpperBound = NSMaxRange(glyphRange)
         } while true
 
         if textContainers.isEmpty {
@@ -251,7 +274,77 @@ private final class PDFRenderer {
         drawBlockQuoteBars(in: container, glyphRange: glyphRange)
         layoutManager.drawBackground(forGlyphRange: glyphRange, at: .zero)
         layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+        drawImages(in: container, glyphRange: glyphRange)
         drawHorizontalRules(in: container, glyphRange: glyphRange)
+    }
+
+    private func drawImages(in container: NSTextContainer, glyphRange: NSRange) {
+        let characterRange = layoutManager.characterRange(
+            forGlyphRange: glyphRange,
+            actualGlyphRange: nil
+        )
+        let options = MarkdownStyleOptions(
+            bodyFontSize: configuration.bodyFontSize,
+            hideMarkers: true,
+            revealedRanges: [],
+            imageMaxWidth: contentRect.width,
+            imageMaxHeight: max(1, contentRect.height - MarkdownStyle.imageVerticalPadding * 2),
+            imageDataProvider: configuration.imageDataProvider
+        )
+
+        let source = markdown as NSString
+        var imageOffsetsByParagraph: [String: CGFloat] = [:]
+
+        for reference in MarkdownStyle.imageReferences(in: markdown) {
+            guard NSIntersectionRange(reference.range, characterRange).length > 0,
+                  let size = MarkdownStyle.resolvedImageSize(
+                    for: reference.path,
+                    widthPercent: reference.widthPercent,
+                    options: options
+                  ),
+                  let data = configuration.imageDataProvider?(reference.path) else {
+                continue
+            }
+
+            let imageGlyphRange = layoutManager.glyphRange(
+                forCharacterRange: reference.range,
+                actualCharacterRange: nil
+            )
+            guard NSIntersectionRange(imageGlyphRange, glyphRange).length > 0 else { continue }
+
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: imageGlyphRange.location,
+                effectiveRange: nil
+            )
+            let paragraphRange = source.paragraphRange(for: reference.range)
+            let paragraphKey = "\(paragraphRange.location)-\(paragraphRange.length)"
+            let xOffset = imageOffsetsByParagraph[paragraphKey, default: 0]
+            let rect = CGRect(
+                x: xOffset,
+                y: lineRect.minY + MarkdownStyle.imageVerticalPadding,
+                width: size.width,
+                height: size.height
+            )
+            imageOffsetsByParagraph[paragraphKey] = xOffset + size.width
+            drawImage(data, in: rect)
+        }
+    }
+
+    private func drawImage(_ data: Data, in rect: CGRect) {
+        #if os(macOS)
+        guard let image = NSImage(data: data) else { return }
+        image.draw(
+            in: rect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+        #elseif os(iOS)
+        guard let image = UIImage(data: data) else { return }
+        image.draw(in: rect)
+        #endif
     }
 
     private func drawCodeBlockBackgrounds(in container: NSTextContainer, glyphRange: NSRange) {
