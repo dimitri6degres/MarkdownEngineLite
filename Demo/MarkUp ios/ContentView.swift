@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var imageImportError: String?
     @State private var pdfDocument = MarkdownPDFDocument(data: Data())
     @State private var pdfExportError: String?
+    @State private var isChoosingPDFPagination = false
+    @State private var pdfPaginates = true
     
     init(document: Binding<MarkdownDocument>, documentURL: URL?) {
         self._document = document
@@ -90,7 +92,7 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button {
-                    exportPDF()
+                    isChoosingPDFPagination = true
                 } label: {
                     Label {
                         Text("Export PDF")
@@ -134,6 +136,20 @@ struct ContentView: View {
             Button("Later", role: .cancel) {}
         } message: {
             Text("Markdown files cannot contain local images by themselves. MarkUp can create a TextBundle copy next to this file and open it for you.")
+        }
+        .alert(
+            "Export PDF",
+            isPresented: $isChoosingPDFPagination
+        ) {
+            Button("Paginated") {
+                exportPDF(paginates: true)
+            }
+            Button("Single page") {
+                exportPDF(paginates: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose how the PDF should be generated.")
         }
         .fileExporter(
             isPresented: $isExportingPDF,
@@ -235,15 +251,12 @@ struct ContentView: View {
         }
     }
 
-    private func exportPDF() {
+    private func exportPDF(paginates: Bool) {
         do {
+            pdfPaginates = paginates
             pdfDocument = try MarkdownPDFExporter.document(
                 markdown: document.text,
-                configuration: MarkdownPDFExporter.Configuration(
-                    imageDataProvider: { path in
-                        document.imageData(for: path)
-                    }
-                )
+                configuration: pdfConfiguration(paginates: paginates)
             )
             Task { @MainActor in
                 isExportingPDF = true
@@ -251,6 +264,15 @@ struct ContentView: View {
         } catch {
             pdfExportError = error.localizedDescription
         }
+    }
+
+    private func pdfConfiguration(paginates: Bool) -> MarkdownPDFExporter.Configuration {
+        MarkdownPDFExporter.Configuration(
+            paginates: paginates,
+            imageDataProvider: { path in
+                document.imageData(for: path)
+            }
+        )
     }
 
     private var isTextBundleDocument: Bool {
@@ -285,7 +307,7 @@ struct ContentView: View {
 
     private var pdfExportFilename: String {
         let baseName = documentURL?.deletingPathExtension().lastPathComponent ?? "Document"
-        return "\(baseName).pdf"
+        return pdfPaginates ? "\(baseName).pdf" : "\(baseName)-single-page.pdf"
     }
     
 }

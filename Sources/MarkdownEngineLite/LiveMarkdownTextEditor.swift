@@ -116,27 +116,6 @@ struct LiveMarkdownTextEditor: View {
                         )
                     }
                     
-//                    Menu {
-//                        Button("Auto") { setSelectedImageWidth(0) }
-//                        Button("25%") { setSelectedImageWidth(25) }
-//                        Button("50%") { setSelectedImageWidth(50) }
-//                        Button("75%") { setSelectedImageWidth(75) }
-//                        Button("100%") { setSelectedImageWidth(100) }
-//                    }
-//                    label: {
-//                        
-//                        CustomButtonLabel(text: "Image size",
-//                                          image: "size",
-//                                          size: configuration.editorToolbarButtonSize) {
-//                            selectedRange = MarkdownTextEditing.toggleCodeBlock(
-//                                in: &text,
-//                                selectedRange: selectedRange
-//                            )
-//                        }
-//                    }
-//                    .opacity(selectedImageRange != nil ? 1 : 0.35)
-//                    .disabled(selectedImageRange == nil)
-                    
                     ImageWidthMenu(
                         size: configuration.editorToolbarButtonSize,
                         isEnabled: selectedImageRange != nil
@@ -205,6 +184,7 @@ struct LiveMarkdownTextEditor: View {
             Menu {
                 Button("Auto") { action(0) }
                 Button("25%") { action(25) }
+                Button("33%") { action(33) }
                 Button("50%") { action(50) }
                 Button("75%") { action(75) }
                 Button("100%") { action(100) }
@@ -739,7 +719,7 @@ final class MarkdownNSTextView: NSTextView {
 
         NSColor.separatorColor.setStroke()
 
-        for range in MarkdownStyle.horizontalRuleRanges(in: string) {
+        for range in MarkdownStyle.renderedHorizontalRuleRanges(in: string) {
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: range,
                 actualCharacterRange: nil
@@ -765,7 +745,7 @@ final class MarkdownNSTextView: NSTextView {
 
         MarkdownStyle.blockQuoteBarColor.setFill()
 
-        for range in MarkdownStyle.blockQuoteRanges(in: string) {
+        for range in MarkdownStyle.renderedBlockQuoteRanges(in: string) {
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: range,
                 actualCharacterRange: nil
@@ -891,7 +871,7 @@ final class MarkdownNSTextView: NSTextView {
         stackView.layer?.borderWidth = 1
         stackView.layer?.zPosition = 10_000
 
-        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
+        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25), (title: "33%", percent: 33), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
             let button = NSButton(title: option.title, target: self, action: #selector(changeImageWidth(_:)))
             button.tag = option.percent
             button.bezelStyle = .rounded
@@ -1499,7 +1479,7 @@ final class MarkdownUITextView: UITextView {
         stackView.layer.borderWidth = 1
         stackView.layer.zPosition = 10_000
 
-        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
+        for option in [(title: "Auto", percent: 0), (title: "25%", percent: 25),(title: "33%", percent: 33), (title: "50%", percent: 50), (title: "75%", percent: 75), (title: "100%", percent: 100)] {
             let button = UIButton(type: .system)
             button.tag = option.percent
             button.setTitle(option.title, for: .normal)
@@ -1549,7 +1529,7 @@ final class MarkdownUITextView: UITextView {
 
         layoutManager.ensureLayout(for: textContainer)
 
-        for range in MarkdownStyle.blockQuoteRanges(in: text) {
+        for range in MarkdownStyle.renderedBlockQuoteRanges(in: text) {
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: range,
                 actualCharacterRange: nil
@@ -1591,7 +1571,7 @@ final class MarkdownUITextView: UITextView {
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         guard width > 0 else { return }
 
-        for range in MarkdownStyle.horizontalRuleRanges(in: text) {
+        for range in MarkdownStyle.renderedHorizontalRuleRanges(in: text) {
             let glyphRange = layoutManager.glyphRange(
                 forCharacterRange: range,
                 actualCharacterRange: nil

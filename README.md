@@ -338,7 +338,8 @@ Customize page size, margins, and body font size:
 let configuration = MarkdownPDFExporter.Configuration(
     pageSize: CGSize(width: 595.2, height: 841.8),
     margins: .init(top: 56, left: 56, bottom: 56, right: 56),
-    bodyFontSize: 17
+    bodyFontSize: 17,
+    paginates: true
 )
 
 let data = try MarkdownPDFExporter.export(
@@ -348,6 +349,19 @@ let data = try MarkdownPDFExporter.export(
 ```
 
 The PDF renderer includes support for horizontal rules, block quotes, rounded code block backgrounds, and paginated code blocks. When a code block is split across pages, the cut edge is not rounded so the block reads as continuous.
+
+Set `paginates` to `false` to export a single long PDF page instead of splitting the content across pages:
+
+```swift
+let configuration = MarkdownPDFExporter.Configuration(
+    paginates: false
+)
+
+let data = try MarkdownPDFExporter.export(
+    markdown: text,
+    configuration: configuration
+)
+```
 
 Images are included in PDF export when the same kind of `imageDataProvider` is supplied through `MarkdownPDFExporter.Configuration`.
 
@@ -364,6 +378,32 @@ let data = try MarkdownPDFExporter.export(
     configuration: configuration
 )
 ```
+
+## Printing
+
+The package can print through the same PDF renderer.
+
+On macOS:
+
+```swift
+try MarkdownPDFExporter.print(
+    markdown: text,
+    configuration: configuration
+)
+```
+
+On iOS:
+
+```swift
+try MarkdownPDFExporter.print(
+    markdown: text,
+    configuration: configuration,
+    jobName: "Document",
+    from: sourceView
+)
+```
+
+Passing a `sourceView` is recommended on iPad so the system print sheet has an anchor.
 
 ## Demo Apps
 

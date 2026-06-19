@@ -6,11 +6,16 @@ import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
+import PDFKit
 #elseif os(iOS)
 import UIKit
 #endif
 
 public enum MarkdownPDFExporter {
+    public enum ExportError: Error {
+        case printingUnavailable
+    }
+
     public struct Margins: Sendable, Equatable {
         public var top: CGFloat
         public var left: CGFloat
@@ -29,17 +34,20 @@ public enum MarkdownPDFExporter {
         public var pageSize: CGSize
         public var margins: Margins
         public var bodyFontSize: CGFloat
+        public var paginates: Bool
         public var imageDataProvider: ((String) -> Data?)?
 
         public init(
             pageSize: CGSize = CGSize(width: 595.2, height: 841.8),
             margins: Margins = Margins(top: 56, left: 56, bottom: 56, right: 56),
             bodyFontSize: CGFloat = 12,
+            paginates: Bool = true,
             imageDataProvider: ((String) -> Data?)? = nil
         ) {
             self.pageSize = pageSize
             self.margins = margins
             self.bodyFontSize = bodyFontSize
+            self.paginates = paginates
             self.imageDataProvider = imageDataProvider
         }
 
@@ -57,13 +65,15 @@ public enum MarkdownPDFExporter {
                 hideMarkers: true,
                 revealedRanges: [],
                 imageMaxWidth: configuration.pageSize.width - configuration.margins.left - configuration.margins.right,
-                imageMaxHeight: max(
-                    1,
-                    configuration.pageSize.height
-                        - configuration.margins.top
-                        - configuration.margins.bottom
-                        - MarkdownStyle.imageVerticalPadding * 2
-                ),
+                imageMaxHeight: configuration.paginates
+                    ? max(
+                        1,
+                        configuration.pageSize.height
+                            - configuration.margins.top
+                            - configuration.margins.bottom
+                            - MarkdownStyle.imageVerticalPadding * 2
+                    )
+                    : 0,
                 imageDataProvider: configuration.imageDataProvider
             )
         )
@@ -100,6 +110,68 @@ public enum MarkdownPDFExporter {
         let data = try export(markdown: markdown, configuration: configuration)
         try data.write(to: url, options: .atomic)
     }
+
+    #if os(macOS)
+    @MainActor
+    @discardableResult
+    public static func print(
+        markdown: String,
+        configuration: Configuration = .default,
+        printInfo: NSPrintInfo = .shared,
+        showsPrintPanel: Bool = true,
+        showsProgressPanel: Bool = true
+    ) throws -> NSPrintOperation {
+        let data = try export(markdown: markdown, configuration: configuration)
+        guard let document = PDFDocument(data: data),
+              let operation = document.printOperation(
+                for: printInfo,
+                scalingMode: .pageScaleDownToFit,
+                autoRotate: true
+              ) else {
+            throw ExportError.printingUnavailable
+        }
+
+        operation.showsPrintPanel = showsPrintPanel
+        operation.showsProgressPanel = showsProgressPanel
+        operation.run()
+        return operation
+    }
+    #endif
+
+    #if os(iOS)
+    @MainActor
+    public static func print(
+        markdown: String,
+        configuration: Configuration = .default,
+        jobName: String = "Document",
+        from sourceView: UIView? = nil,
+        sourceRect: CGRect? = nil,
+        animated: Bool = true
+    ) throws {
+        let data = try export(markdown: markdown, configuration: configuration)
+        guard UIPrintInteractionController.isPrintingAvailable else {
+            throw ExportError.printingUnavailable
+        }
+
+        let printInfo = UIPrintInfo(dictionary: nil)
+        printInfo.outputType = .general
+        printInfo.jobName = jobName
+
+        let controller = UIPrintInteractionController.shared
+        controller.printInfo = printInfo
+        controller.printingItem = data
+
+        if let sourceView {
+            controller.present(
+                from: sourceRect ?? sourceView.bounds,
+                in: sourceView,
+                animated: animated
+            )
+        } else {
+            controller.present(animated: animated)
+        }
+    }
+    #endif
 }
 
 public struct MarkdownPDFDocument: FileDocument {
@@ -146,13 +218,14 @@ private final class PDFRenderer {
     private let textStorage: NSTextStorage
     private let layoutManager: NSLayoutManager
     private var textContainers: [NSTextContainer] = []
+    private var renderedPageSize: CGSize
 
     private var contentRect: CGRect {
         CGRect(
             x: configuration.margins.left,
             y: configuration.margins.top,
-            width: configuration.pageSize.width - configuration.margins.left - configuration.margins.right,
-            height: configuration.pageSize.height - configuration.margins.top - configuration.margins.bottom
+            width: renderedPageSize.width - configuration.margins.left - configuration.margins.right,
+            height: renderedPageSize.height - configuration.margins.top - configuration.margins.bottom
         )
     }
 
@@ -166,11 +239,16 @@ private final class PDFRenderer {
         self.configuration = configuration
         self.textStorage = NSTextStorage(attributedString: attributedString)
         self.layoutManager = NSLayoutManager()
+        self.renderedPageSize = configuration.pageSize
         self.textStorage.addLayoutManager(layoutManager)
     }
 
     func render() throws -> Data {
-        paginate()
+        if configuration.paginates {
+            paginate()
+        } else {
+            createSinglePage()
+        }
 
         #if os(macOS)
         return renderMacPDF()
@@ -214,10 +292,40 @@ private final class PDFRenderer {
         }
     }
 
+    private func createSinglePage() {
+        textContainers.removeAll()
+
+        let contentWidth = max(
+            1,
+            configuration.pageSize.width - configuration.margins.left - configuration.margins.right
+        )
+        let minimumContentHeight = max(
+            1,
+            configuration.pageSize.height - configuration.margins.top - configuration.margins.bottom
+        )
+        let generousContentHeight = max(
+            minimumContentHeight,
+            max(10_000, CGFloat(max(layoutManager.numberOfGlyphs, 1)) * max(configuration.bodyFontSize, 1) * 4)
+        )
+
+        let container = NSTextContainer(size: CGSize(width: contentWidth, height: generousContentHeight))
+        container.lineFragmentPadding = 0
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+
+        let usedRect = layoutManager.usedRect(for: container)
+        let contentHeight = max(minimumContentHeight, ceil(usedRect.maxY))
+        renderedPageSize = CGSize(
+            width: configuration.pageSize.width,
+            height: configuration.margins.top + contentHeight + configuration.margins.bottom
+        )
+        textContainers.append(container)
+    }
+
     #if os(macOS)
     private func renderMacPDF() -> Data {
         let data = NSMutableData()
-        var mediaBox = CGRect(origin: .zero, size: configuration.pageSize)
+        var mediaBox = CGRect(origin: .zero, size: renderedPageSize)
         guard let consumer = CGDataConsumer(data: data),
               let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
             return Data()
@@ -227,8 +335,8 @@ private final class PDFRenderer {
             context.beginPDFPage(nil)
             context.saveGState()
             context.setFillColor(CGColor(gray: 1, alpha: 1))
-            context.fill(CGRect(origin: .zero, size: configuration.pageSize))
-            context.translateBy(x: contentRect.minX, y: configuration.pageSize.height - contentRect.minY)
+            context.fill(CGRect(origin: .zero, size: renderedPageSize))
+            context.translateBy(x: contentRect.minX, y: renderedPageSize.height - contentRect.minY)
             context.scaleBy(x: 1, y: -1)
 
             let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
@@ -250,7 +358,7 @@ private final class PDFRenderer {
     private func renderIOSPDF() -> Data {
         let format = UIGraphicsPDFRendererFormat()
         let renderer = UIGraphicsPDFRenderer(
-            bounds: CGRect(origin: .zero, size: configuration.pageSize),
+            bounds: CGRect(origin: .zero, size: renderedPageSize),
             format: format
         )
 
@@ -258,7 +366,7 @@ private final class PDFRenderer {
             for container in textContainers {
                 context.beginPage()
                 UIColor.white.setFill()
-                context.fill(CGRect(origin: .zero, size: configuration.pageSize))
+                context.fill(CGRect(origin: .zero, size: renderedPageSize))
                 UIGraphicsPushContext(context.cgContext)
                 context.cgContext.translateBy(x: contentRect.minX, y: contentRect.minY)
                 draw(container: container)
@@ -478,7 +586,7 @@ private final class PDFRenderer {
             actualGlyphRange: nil
         )
 
-        for quoteRange in MarkdownStyle.blockQuoteRanges(in: markdown) {
+        for quoteRange in MarkdownStyle.renderedBlockQuoteRanges(in: markdown) {
             guard NSIntersectionRange(quoteRange, characterRange).length > 0 else { continue }
 
             let quoteGlyphRange = layoutManager.glyphRange(
@@ -527,7 +635,7 @@ private final class PDFRenderer {
             actualGlyphRange: nil
         )
 
-        for ruleRange in MarkdownStyle.horizontalRuleRanges(in: markdown) {
+        for ruleRange in MarkdownStyle.renderedHorizontalRuleRanges(in: markdown) {
             guard NSIntersectionRange(ruleRange, characterRange).length > 0 else { continue }
 
             let ruleGlyphRange = layoutManager.glyphRange(

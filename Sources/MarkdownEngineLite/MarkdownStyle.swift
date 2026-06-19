@@ -42,6 +42,13 @@ enum MarkdownStyle {
         return matches(#"(?m)^[ \t]*-{3,}[ \t]*$"#, in: text, range: fullRange).map(\.range)
     }
 
+    static func renderedHorizontalRuleRanges(in text: String) -> [NSRange] {
+        let source = text as NSString
+        return horizontalRuleRanges(in: text).filter {
+            !intersectsFencedCode($0, source: source)
+        }
+    }
+
     static func fencedCodeBlockRanges(in text: String) -> [NSRange] {
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
@@ -52,6 +59,13 @@ enum MarkdownStyle {
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
         return matches(#"(?m)^[ \t]*>[ \t]?.*$"#, in: text, range: fullRange).map(\.range)
+    }
+
+    static func renderedBlockQuoteRanges(in text: String) -> [NSRange] {
+        let source = text as NSString
+        return blockQuoteRanges(in: text).filter {
+            !intersectsFencedCode($0, source: source)
+        }
     }
 
     static func imageReferences(in text: String) -> [MarkdownImageReference] {
@@ -158,9 +172,7 @@ enum MarkdownStyle {
         fullRange: NSRange,
         options: MarkdownStyleOptions
     ) {
-        for range in horizontalRuleRanges(in: source as String) where NSIntersectionRange(range, fullRange).length > 0 {
-            guard !intersectsFencedCode(range, source: source) else { continue }
-
+        for range in renderedHorizontalRuleRanges(in: source as String) where NSIntersectionRange(range, fullRange).length > 0 {
             output.addAttributes([
                 .foregroundColor: horizontalRuleColor
             ], range: range)
@@ -184,7 +196,7 @@ enum MarkdownStyle {
     ) {
         let pattern = #"(?m)^([ \t]*>[ \t]?)(.*)$"#
         for match in matches(pattern, in: source as String, range: fullRange) {
-            guard !intersectsFencedCode(match.range, source: source) else { continue }
+            guard renderedBlockQuoteRanges(in: source as String).contains(match.range) else { continue }
 
             let markerRange = match.range(at: 1)
             let textRange = match.range(at: 2)
@@ -215,6 +227,7 @@ enum MarkdownStyle {
                 guard !isWrappedByAdditionalDelimiter(match.range, delimiter: delimiter, source: source) else {
                     continue
                 }
+                guard !intersectsNonTextFencedCode(match.range, source: source) else { continue }
                 let isInCodeBlock = intersectsFencedCode(match.range, source: source)
 
                 output.addAttributes([
@@ -239,6 +252,7 @@ enum MarkdownStyle {
             let pattern = "\(escaped)(.+?)\(escaped)"
 
             for match in matches(pattern, in: source as String, range: fullRange) {
+                guard !intersectsNonTextFencedCode(match.range, source: source) else { continue }
                 let isInCodeBlock = intersectsFencedCode(match.range, source: source)
 
                 output.addAttributes([
@@ -260,6 +274,7 @@ enum MarkdownStyle {
     ) {
         let pattern = #"(?<!\*)\*([^\*\n]+)\*(?!\*)"#
         for match in matches(pattern, in: source as String, range: fullRange) {
+            guard !intersectsNonTextFencedCode(match.range, source: source) else { continue }
             let isInCodeBlock = intersectsFencedCode(match.range, source: source)
 
             output.addAttributes([
@@ -504,6 +519,26 @@ enum MarkdownStyle {
         fencedCodeBlockRanges(in: source as String).contains {
             NSIntersectionRange(range, $0).length > 0
         }
+    }
+
+    private static func intersectsNonTextFencedCode(_ range: NSRange, source: NSString) -> Bool {
+        fencedCodeBlockRanges(in: source as String).contains { blockRange in
+            NSIntersectionRange(range, blockRange).length > 0
+                && !isTextFencedCodeBlock(blockRange, source: source)
+        }
+    }
+
+    private static func isTextFencedCodeBlock(_ blockRange: NSRange, source: NSString) -> Bool {
+        let block = source.substring(with: blockRange) as NSString
+        let firstLineLength = block.range(of: "\n").location
+        guard firstLineLength != NSNotFound else { return false }
+
+        let openingLine = block.substring(with: NSRange(location: 0, length: firstLineLength))
+        let language = openingLine
+            .dropFirst(3)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return language == "text"
     }
 
     private static func isWrappedByAdditionalDelimiter(

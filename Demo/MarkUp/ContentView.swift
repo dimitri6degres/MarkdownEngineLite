@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var imageImportError: String?
     @State private var pdfDocument = MarkdownPDFDocument(data: Data())
     @State private var pdfExportError: String?
+    @State private var printError: String?
+    @State private var isChoosingPDFPagination = false
+    @State private var pdfPaginates = true
     
     init(document: Binding<MarkdownDocument>, documentURL: URL?) {
         self._document = document
@@ -81,7 +84,7 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button {
-                    exportPDF()
+                    isChoosingPDFPagination = true
                 } label: {
                     Label {
                         Text("Export PDF")
@@ -90,10 +93,11 @@ struct ContentView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: 20, height: 20)
-                    }
+                        }
                 }
             }
         }
+        .focusedSceneValue(\.printMarkdownDocument, printDocument)
         .fileImporter(
             isPresented: $isImportingImage,
             allowedContentTypes: [.image],
@@ -123,6 +127,20 @@ struct ContentView: View {
         } message: {
             Text("Markdown files cannot contain local images by themselves. Choose where to save a TextBundle copy, then MarkUp will open it for you.")
         }
+        .alert(
+            "Export PDF",
+            isPresented: $isChoosingPDFPagination
+        ) {
+            Button("Paginated") {
+                exportPDF(paginates: true)
+            }
+            Button("Single page") {
+                exportPDF(paginates: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose how the PDF should be generated.")
+        }
         .fileExporter(
             isPresented: $isExportingPDF,
             document: pdfDocument,
@@ -143,6 +161,17 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(pdfExportError ?? "")
+        }
+        .alert(
+            "Print failed",
+            isPresented: Binding(
+                get: { printError != nil },
+                set: { if !$0 { printError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(printError ?? "")
         }
        
     }
@@ -236,15 +265,12 @@ struct ContentView: View {
         }
     }
 
-    private func exportPDF() {
+    private func exportPDF(paginates: Bool) {
         do {
+            pdfPaginates = paginates
             pdfDocument = try MarkdownPDFExporter.document(
                 markdown: document.text,
-                configuration: MarkdownPDFExporter.Configuration(
-                    imageDataProvider: { path in
-                        document.imageData(for: path)
-                    }
-                )
+                configuration: pdfConfiguration(paginates: paginates)
             )
             Task { @MainActor in
                 isExportingPDF = true
@@ -252,6 +278,27 @@ struct ContentView: View {
         } catch {
             pdfExportError = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func printDocument() {
+        do {
+            try MarkdownPDFExporter.print(
+                markdown: document.text,
+                configuration: pdfConfiguration(paginates: true)
+            )
+        } catch {
+            printError = error.localizedDescription
+        }
+    }
+
+    private func pdfConfiguration(paginates: Bool) -> MarkdownPDFExporter.Configuration {
+        MarkdownPDFExporter.Configuration(
+            paginates: paginates,
+            imageDataProvider: { path in
+                document.imageData(for: path)
+            }
+        )
     }
 
     private var isTextBundleDocument: Bool {
@@ -265,7 +312,7 @@ struct ContentView: View {
 
     private var pdfExportFilename: String {
         let baseName = documentURL?.deletingPathExtension().lastPathComponent ?? "Document"
-        return "\(baseName).pdf"
+        return pdfPaginates ? "\(baseName).pdf" : "\(baseName)-single-page.pdf"
     }
     
 }

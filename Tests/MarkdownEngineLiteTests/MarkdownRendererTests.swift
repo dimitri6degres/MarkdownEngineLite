@@ -119,9 +119,38 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertTrue(revealedRanges.contains { NSIntersectionRange($0, closingFence).length > 0 })
     }
 
-    func testInlineMarkdownInsideCodeBlockKeepsMonospaceFontTraits() throws {
+    func testInlineMarkdownInsideCodeBlockIsNotInterpretedByDefault() throws {
         let source = """
+        ```swift
+        **bold** and *italic*
         ```
+        """
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: false, revealedRanges: [])
+        )
+
+        let boldIndex = (source as NSString).range(of: "bold").location
+        let italicIndex = (source as NSString).range(of: "italic").location
+        let boldFont = try XCTUnwrap(rendered.attribute(.font, at: boldIndex, effectiveRange: nil) as? MarkdownNativeFont)
+        let italicFont = try XCTUnwrap(rendered.attribute(.font, at: italicIndex, effectiveRange: nil) as? MarkdownNativeFont)
+
+        #if os(macOS)
+        XCTAssertFalse(boldFont.fontDescriptor.symbolicTraits.contains(.bold))
+        XCTAssertFalse(italicFont.fontDescriptor.symbolicTraits.contains(.italic))
+        XCTAssertTrue(boldFont.fontDescriptor.symbolicTraits.contains(.monoSpace))
+        XCTAssertTrue(italicFont.fontDescriptor.symbolicTraits.contains(.monoSpace))
+        #else
+        XCTAssertFalse(boldFont.fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertFalse(italicFont.fontDescriptor.symbolicTraits.contains(.traitItalic))
+        XCTAssertTrue(boldFont.fontDescriptor.symbolicTraits.contains(.traitMonoSpace))
+        XCTAssertTrue(italicFont.fontDescriptor.symbolicTraits.contains(.traitMonoSpace))
+        #endif
+    }
+
+    func testInlineMarkdownInsideTextCodeBlockKeepsMonospaceFontTraits() throws {
+        let source = """
+        ```text
         **bold** and *italic*
         ```
         """
@@ -526,6 +555,89 @@ final class MarkdownRendererTests: XCTestCase {
         #endif
     }
 
+    func testHorizontalRuleInsideCodeBlockIsNotInterpretedByDefault() throws {
+        let source = """
+        ```swift
+        ---
+        ```
+        """
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: false, revealedRanges: [])
+        )
+        let ruleIndex = (source as NSString).range(of: "---").location
+        let color = try XCTUnwrap(rendered.attribute(.foregroundColor, at: ruleIndex, effectiveRange: nil) as? MarkdownNativeColor)
+
+        #if os(macOS)
+        XCTAssertEqual(color, MarkdownNativeColor.labelColor)
+        #else
+        XCTAssertEqual(color, MarkdownNativeColor.label)
+        #endif
+        XCTAssertTrue(MarkdownStyle.renderedHorizontalRuleRanges(in: source).isEmpty)
+    }
+
+    func testHorizontalRuleInsideTextCodeBlockIsNotInterpreted() throws {
+        let source = """
+        ```text
+        ---
+        ```
+        """
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: false, revealedRanges: [])
+        )
+        let ruleIndex = (source as NSString).range(of: "---").location
+        let color = try XCTUnwrap(rendered.attribute(.foregroundColor, at: ruleIndex, effectiveRange: nil) as? MarkdownNativeColor)
+
+        #if os(macOS)
+        XCTAssertEqual(color, MarkdownNativeColor.labelColor)
+        #else
+        XCTAssertEqual(color, MarkdownNativeColor.label)
+        #endif
+        XCTAssertTrue(MarkdownStyle.renderedHorizontalRuleRanges(in: source).isEmpty)
+    }
+
+    func testBlockQuoteInsideCodeBlockIsNotRendered() throws {
+        let source = """
+        ```text
+        > quote
+        ```
+        """
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: true, revealedRanges: [])
+        )
+        let markerIndex = (source as NSString).range(of: ">").location
+        let markerColor = try XCTUnwrap(rendered.attribute(.foregroundColor, at: markerIndex, effectiveRange: nil) as? MarkdownNativeColor)
+
+        #if os(macOS)
+        XCTAssertEqual(markerColor, MarkdownNativeColor.labelColor)
+        #else
+        XCTAssertEqual(markerColor, MarkdownNativeColor.label)
+        #endif
+        XCTAssertTrue(MarkdownStyle.renderedBlockQuoteRanges(in: source).isEmpty)
+    }
+
+    func testImageInsideTextCodeBlockIsNotInterpreted() throws {
+        let source = """
+        ```text
+        ![Logo](assets/logo.png)
+        ```
+        """
+        let rendered = MarkdownStyle.attributedString(
+            for: source,
+            options: MarkdownStyleOptions(bodyFontSize: 17, hideMarkers: true, revealedRanges: [])
+        )
+        let markerIndex = (source as NSString).range(of: "!").location
+        let markerColor = try XCTUnwrap(rendered.attribute(.foregroundColor, at: markerIndex, effectiveRange: nil) as? MarkdownNativeColor)
+
+        #if os(macOS)
+        XCTAssertEqual(markerColor, MarkdownNativeColor.labelColor)
+        #else
+        XCTAssertEqual(markerColor, MarkdownNativeColor.label)
+        #endif
+    }
+
     func testPDFExporterProducesPDFData() throws {
         let data = try MarkdownPDFExporter.export(markdown: "# Title\n\nHello **PDF**\n\n---")
         let prefix = String(data: data.prefix(4), encoding: .utf8)
@@ -608,6 +720,25 @@ final class MarkdownRendererTests: XCTestCase {
         let document = try XCTUnwrap(CGPDFDocument(provider))
 
         XCTAssertGreaterThan(document.numberOfPages, 1)
+    }
+
+    func testPDFExporterCanDisablePagination() throws {
+        let markdown = (1...120).map { "Line \($0)" }.joined(separator: "\n")
+        let data = try MarkdownPDFExporter.export(
+            markdown: markdown,
+            configuration: MarkdownPDFExporter.Configuration(
+                pageSize: CGSize(width: 240, height: 240),
+                margins: .init(top: 24, left: 24, bottom: 24, right: 24),
+                bodyFontSize: 17,
+                paginates: false
+            )
+        )
+
+        let provider = try XCTUnwrap(CGDataProvider(data: data as CFData))
+        let document = try XCTUnwrap(CGPDFDocument(provider))
+
+        XCTAssertEqual(document.numberOfPages, 1)
+        XCTAssertGreaterThan(document.page(at: 1)?.getBoxRect(.mediaBox).height ?? 0, 240)
     }
 
     func testPDFExporterHandlesPaginatedCodeBlocks() throws {
